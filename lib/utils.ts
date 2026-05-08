@@ -1,455 +1,360 @@
-/*jshint node:true*/
-'use strict';
+import { Buffer } from 'node:buffer';
+import { platform } from 'node:os';
+import which from 'which';
 
-var exec = require('child_process').exec;
-var isWindows = require('os').platform().match(/win(32|64)/);
-var which = require('which');
+const SECONDS_PER_MINUTE = 60;
+const SECONDS_PER_HOUR = 3600;
 
-var nlRegexp = /\r\n|\r|\n/g;
-var streamRegexp = /^\[?(.*?)\]?$/;
-var filterEscapeRegexp = /[,]/;
-var whichCache = {};
+const isWindows = /win(32|64)/.test(platform());
+const streamRegexp = /^\[?(.*?)\]?$/;
+const filterEscapeRegexp = /[,]/;
+const nlRegexp = /\r\n|\r|\n/g;
 
-/**
- * Parse progress line from ffmpeg stderr
- *
- * @param {String} line progress line
- * @return progress object
- * @private
- */
-function parseProgressLine(line) {
-  var progress = {};
+const whichCache: Record<string, string> = {};
 
-  // Remove all spaces after = and trim
-  line  = line.replace(/=\s+/g, '=').trim();
-  var progressParts = line.split(' ');
+type WhichCallback = (err: null, path: string) => void;
 
-  // Split every progress part by "=" to get key and value
-  for(var i = 0; i < progressParts.length; i++) {
-    var progressSplit = progressParts[i].split('=', 2);
-    var key = progressSplit[0];
-    var value = progressSplit[1];
-
-    // This is not a progress line
-    if(typeof value === 'undefined')
-      return null;
-
-    progress[key] = value;
-  }
-
-  return progress;
+interface ArgList {
+  (...args: (string | string[])[]): void;
+  clear(): void;
+  get(): string[];
+  find(arg: string, count?: number): string[] | undefined;
+  remove(arg: string, count?: number): void;
+  clone(): ArgList;
 }
 
+interface FilterSpec {
+  filter: string;
+  inputs?: string | string[];
+  outputs?: string | string[];
+  options?: string | number | unknown[] | Record<string, unknown>;
+}
 
-var utils = module.exports = {
-  isWindows: isWindows,
-  streamRegexp: streamRegexp,
+interface InputInfo {
+  format: string;
+  audio: string;
+  video: string;
+  duration: string;
+  audio_details?: string[];
+  video_details?: string[];
+}
 
+interface CodecState {
+  inputStack?: InputInfo[];
+  inputIndex?: number;
+  inInput?: boolean;
+}
 
-  /**
-   * Copy an object keys into another one
-   *
-   * @param {Object} source source object
-   * @param {Object} dest destination object
-   * @private
-   */
-  copy: function(source, dest) {
-    Object.keys(source).forEach(function(key) {
-      dest[key] = source[key];
-    });
-  },
+interface CommandLike {
+  emit(event: string, ...args: unknown[]): boolean;
+  _ffprobeData?: { format?: { duration?: string | number } };
+}
 
+interface LinesRing {
+  callback(cb: (line: string) => void): void;
+  append(str: string | Buffer): void;
+  get(): string;
+  close(): void;
+}
 
-  /**
-   * Create an argument list
-   *
-   * Returns a function that adds new arguments to the list.
-   * It also has the following methods:
-   * - clear() empties the argument list
-   * - get() returns the argument list
-   * - find(arg, count) finds 'arg' in the list and return the following 'count' items, or undefined if not found
-   * - remove(arg, count) remove 'arg' in the list as well as the following 'count' items
-   *
-   * @private
-   */
-  args: function() {
-    var list = [];
+interface ProgressReport {
+  frames: number;
+  currentFps: number;
+  currentKbps: number;
+  targetSize: number;
+  timemark: string;
+  percent?: number;
+}
 
-    // Append argument(s) to the list
-    var argfunc = function() {
-      if (arguments.length === 1 && Array.isArray(arguments[0])) {
-        list = list.concat(arguments[0]);
-      } else {
-        list = list.concat([].slice.call(arguments));
-      }
-    };
+function copy<S extends object>(source: S, dest: Record<string, unknown>): void {
+  Object.keys(source).forEach((key) => {
+    dest[key] = (source as Record<string, unknown>)[key];
+  });
+}
 
-    // Clear argument list
-    argfunc.clear = function() {
-      list = [];
-    };
+function makeArgList(): ArgList {
+  let list: string[] = [];
 
-    // Return argument list
-    argfunc.get = function() {
-      return list;
-    };
-
-    // Find argument 'arg' in list, and if found, return an array of the 'count' items that follow it
-    argfunc.find = function(arg, count) {
-      var index = list.indexOf(arg);
-      if (index !== -1) {
-        return list.slice(index + 1, index + 1 + (count || 0));
-      }
-    };
-
-    // Find argument 'arg' in list, and if found, remove it as well as the 'count' items that follow it
-    argfunc.remove = function(arg, count) {
-      var index = list.indexOf(arg);
-      if (index !== -1) {
-        list.splice(index, (count || 0) + 1);
-      }
-    };
-
-    // Clone argument list
-    argfunc.clone = function() {
-      var cloned = utils.args();
-      cloned(list);
-      return cloned;
-    };
-
-    return argfunc;
-  },
-
-
-  /**
-   * Generate filter strings
-   *
-   * @param {String[]|Object[]} filters filter specifications. When using objects,
-   *   each must have the following properties:
-   * @param {String} filters.filter filter name
-   * @param {String|Array} [filters.inputs] (array of) input stream specifier(s) for the filter,
-   *   defaults to ffmpeg automatically choosing the first unused matching streams
-   * @param {String|Array} [filters.outputs] (array of) output stream specifier(s) for the filter,
-   *   defaults to ffmpeg automatically assigning the output to the output file
-   * @param {Object|String|Array} [filters.options] filter options, can be omitted to not set any options
-   * @return String[]
-   * @private
-   */
-  makeFilterStrings: function(filters) {
-    return filters.map(function(filterSpec) {
-      if (typeof filterSpec === 'string') {
-        return filterSpec;
-      }
-
-      var filterString = '';
-
-      // Filter string format is:
-      // [input1][input2]...filter[output1][output2]...
-      // The 'filter' part can optionaly have arguments:
-      //   filter=arg1:arg2:arg3
-      //   filter=arg1=v1:arg2=v2:arg3=v3
-
-      // Add inputs
-      if (Array.isArray(filterSpec.inputs)) {
-        filterString += filterSpec.inputs.map(function(streamSpec) {
-          return streamSpec.replace(streamRegexp, '[$1]');
-        }).join('');
-      } else if (typeof filterSpec.inputs === 'string') {
-        filterString += filterSpec.inputs.replace(streamRegexp, '[$1]');
-      }
-
-      // Add filter
-      filterString += filterSpec.filter;
-
-      // Add options
-      if (filterSpec.options) {
-        if (typeof filterSpec.options === 'string' || typeof filterSpec.options === 'number') {
-          // Option string
-          filterString += '=' + filterSpec.options;
-        } else if (Array.isArray(filterSpec.options)) {
-          // Option array (unnamed options)
-          filterString += '=' + filterSpec.options.map(function(option) {
-            if (typeof option === 'string' && option.match(filterEscapeRegexp)) {
-              return '\'' + option + '\'';
-            } else {
-              return option;
-            }
-          }).join(':');
-        } else if (Object.keys(filterSpec.options).length) {
-          // Option object (named options)
-          filterString += '=' + Object.keys(filterSpec.options).map(function(option) {
-            var value = filterSpec.options[option];
-
-            if (typeof value === 'string' && value.match(filterEscapeRegexp)) {
-              value = '\'' + value + '\'';
-            }
-
-            return option + '=' + value;
-          }).join(':');
-        }
-      }
-
-      // Add outputs
-      if (Array.isArray(filterSpec.outputs)) {
-        filterString += filterSpec.outputs.map(function(streamSpec) {
-          return streamSpec.replace(streamRegexp, '[$1]');
-        }).join('');
-      } else if (typeof filterSpec.outputs === 'string') {
-        filterString += filterSpec.outputs.replace(streamRegexp, '[$1]');
-      }
-
-      return filterString;
-    });
-  },
-
-
-  /**
-   * Search for an executable
-   *
-   * Uses 'which' or 'where' depending on platform
-   *
-   * @param {String} name executable name
-   * @param {Function} callback callback with signature (err, path)
-   * @private
-   */
-  which: function(name, callback) {
-    if (name in whichCache) {
-      return callback(null, whichCache[name]);
+  const argfunc = ((...args: (string | string[])[]) => {
+    if (args.length === 1 && Array.isArray(args[0])) {
+      list = list.concat(args[0]);
+    } else {
+      list = list.concat(args as string[]);
     }
+  }) as ArgList;
 
-    which(name, function(err, result){
-      if (err) {
-        // Treat errors as not found
-        return callback(null, whichCache[name] = '');
-      }
-      callback(null, whichCache[name] = result);
-    });
-  },
+  argfunc.clear = () => {
+    list = [];
+  };
+  argfunc.get = () => list;
+  argfunc.find = (arg, count = 0) => {
+    const i = list.indexOf(arg);
+    return i === -1 ? undefined : list.slice(i + 1, i + 1 + count);
+  };
+  argfunc.remove = (arg, count = 0) => {
+    const i = list.indexOf(arg);
+    if (i !== -1) list.splice(i, count + 1);
+  };
+  argfunc.clone = () => {
+    const cloned = makeArgList();
+    cloned(list);
+    return cloned;
+  };
 
+  return argfunc;
+}
 
-  /**
-   * Convert a [[hh:]mm:]ss[.xxx] timemark into seconds
-   *
-   * @param {String} timemark timemark string
-   * @return Number
-   * @private
-   */
-  timemarkToSeconds: function(timemark) {
-    if (typeof timemark === 'number') {
-      return timemark;
-    }
+function streamSpecsToBrackets(spec: string | string[] | undefined): string {
+  if (spec === undefined) return '';
+  const list = Array.isArray(spec) ? spec : [spec];
+  return list.map((s) => s.replace(streamRegexp, '[$1]')).join('');
+}
 
-    if (timemark.indexOf(':') === -1 && timemark.indexOf('.') >= 0) {
-      return Number(timemark);
-    }
-
-    var parts = timemark.split(':');
-
-    // add seconds
-    var secs = Number(parts.pop());
-
-    if (parts.length) {
-      // add minutes
-      secs += Number(parts.pop()) * 60;
-    }
-
-    if (parts.length) {
-      // add hours
-      secs += Number(parts.pop()) * 3600;
-    }
-
-    return secs;
-  },
-
-
-  /**
-   * Extract codec data from ffmpeg stderr and emit 'codecData' event if appropriate
-   * Call it with an initially empty codec object once with each line of stderr output until it returns true
-   *
-   * @param {FfmpegCommand} command event emitter
-   * @param {String} stderrLine ffmpeg stderr output line
-   * @param {Object} codecObject object used to accumulate codec data between calls
-   * @return {Boolean} true if codec data is complete (and event was emitted), false otherwise
-   * @private
-   */
-  extractCodecData: function(command, stderrLine, codecsObject) {
-    var inputPattern = /Input #[0-9]+, ([^ ]+),/;
-    var durPattern = /Duration\: ([^,]+)/;
-    var audioPattern = /Audio\: (.*)/;
-    var videoPattern = /Video\: (.*)/;
-
-    if (!('inputStack' in codecsObject)) {
-      codecsObject.inputStack = [];
-      codecsObject.inputIndex = -1;
-      codecsObject.inInput = false;
-    }
-
-    var inputStack = codecsObject.inputStack;
-    var inputIndex = codecsObject.inputIndex;
-    var inInput = codecsObject.inInput;
-
-    var format, dur, audio, video;
-
-    if (format = stderrLine.match(inputPattern)) {
-      inInput = codecsObject.inInput = true;
-      inputIndex = codecsObject.inputIndex = codecsObject.inputIndex + 1;
-
-      inputStack[inputIndex] = { format: format[1], audio: '', video: '', duration: '' };
-    } else if (inInput && (dur = stderrLine.match(durPattern))) {
-      inputStack[inputIndex].duration = dur[1];
-    } else if (inInput && (audio = stderrLine.match(audioPattern))) {
-      audio = audio[1].split(', ');
-      inputStack[inputIndex].audio = audio[0];
-      inputStack[inputIndex].audio_details = audio;
-    } else if (inInput && (video = stderrLine.match(videoPattern))) {
-      video = video[1].split(', ');
-      inputStack[inputIndex].video = video[0];
-      inputStack[inputIndex].video_details = video;
-    } else if (/Output #\d+/.test(stderrLine)) {
-      inInput = codecsObject.inInput = false;
-    } else if (/Stream mapping:|Press (\[q\]|ctrl-c) to stop/.test(stderrLine)) {
-      command.emit.apply(command, ['codecData'].concat(inputStack));
-      return true;
-    }
-
-    return false;
-  },
-
-
-  /**
-   * Extract progress data from ffmpeg stderr and emit 'progress' event if appropriate
-   *
-   * @param {FfmpegCommand} command event emitter
-   * @param {String} stderrLine ffmpeg stderr data
-   * @private
-   */
-  extractProgress: function(command, stderrLine) {
-    var progress = parseProgressLine(stderrLine);
-
-    if (progress) {
-      // build progress report object
-      var ret = {
-        frames: parseInt(progress.frame, 10),
-        currentFps: parseInt(progress.fps, 10),
-        currentKbps: progress.bitrate ? parseFloat(progress.bitrate.replace('kbits/s', '')) : 0,
-        targetSize: parseInt(progress.size || progress.Lsize, 10),
-        timemark: progress.time
-      };
-
-      // calculate percent progress using duration
-      if (command._ffprobeData && command._ffprobeData.format && command._ffprobeData.format.duration) {
-        var duration = Number(command._ffprobeData.format.duration);
-        if (!isNaN(duration))
-          ret.percent = (utils.timemarkToSeconds(ret.timemark) / duration) * 100;
-      }
-      command.emit('progress', ret);
-    }
-  },
-
-
-  /**
-   * Extract error message(s) from ffmpeg stderr
-   *
-   * @param {String} stderr ffmpeg stderr data
-   * @return {String}
-   * @private
-   */
-  extractError: function(stderr) {
-    // Only return the last stderr lines that don't start with a space or a square bracket
-    return stderr.split(nlRegexp).reduce(function(messages, message) {
-      if (message.charAt(0) === ' ' || message.charAt(0) === '[') {
-        return [];
-      } else {
-        messages.push(message);
-        return messages;
-      }
-    }, []).join('\n');
-  },
-
-
-  /**
-   * Creates a line ring buffer object with the following methods:
-   * - append(str) : appends a string or buffer
-   * - get() : returns the whole string
-   * - close() : prevents further append() calls and does a last call to callbacks
-   * - callback(cb) : calls cb for each line (incl. those already in the ring)
-   *
-   * @param {Number} maxLines maximum number of lines to store (<= 0 for unlimited)
-   */
-  linesRing: function(maxLines) {
-    var cbs = [];
-    var lines = [];
-    var current = null;
-    var closed = false
-    var max = maxLines - 1;
-
-    function emit(line) {
-      cbs.forEach(function(cb) { cb(line); });
-    }
-
-    return {
-      callback: function(cb) {
-        lines.forEach(function(l) { cb(l); });
-        cbs.push(cb);
-      },
-
-      append: function(str) {
-        if (closed) return;
-        if (str instanceof Buffer) str = '' + str;
-        if (!str || str.length === 0) return;
-
-        var newLines = str.split(nlRegexp);
-
-        if (newLines.length === 1) {
-          if (current !== null) {
-            current = current + newLines.shift();
-          } else {
-            current = newLines.shift();
-          }
-        } else {
-          if (current !== null) {
-            current = current + newLines.shift();
-            emit(current);
-            lines.push(current);
-          }
-
-          current = newLines.pop();
-
-          newLines.forEach(function(l) {
-            emit(l);
-            lines.push(l);
-          });
-
-          if (max > -1 && lines.length > max) {
-            lines.splice(0, lines.length - max);
-          }
-        }
-      },
-
-      get: function() {
-        if (current !== null) {
-          return lines.concat([current]).join('\n');
-        } else {
-          return lines.join('\n');
-        }
-      },
-
-      close: function() {
-        if (closed) return;
-
-        if (current !== null) {
-          emit(current);
-          lines.push(current);
-
-          if (max > -1 && lines.length > max) {
-            lines.shift();
-          }
-
-          current = null;
-        }
-
-        closed = true;
-      }
-    };
+function escapeFilterValue(value: unknown): string {
+  if (typeof value === 'string' && filterEscapeRegexp.test(value)) {
+    return `'${value}'`;
   }
+  return String(value);
+}
+
+function filterOptionsToString(options: FilterSpec['options']): string {
+  if (options === undefined || options === null) return '';
+  if (typeof options === 'string' || typeof options === 'number') return `=${options}`;
+  if (Array.isArray(options)) return `=${options.map(escapeFilterValue).join(':')}`;
+  const entries = Object.entries(options);
+  if (entries.length === 0) return '';
+  return `=${entries.map(([k, v]) => `${k}=${escapeFilterValue(v)}`).join(':')}`;
+}
+
+function filterSpecToString(spec: string | FilterSpec): string {
+  if (typeof spec === 'string') return spec;
+  return (
+    streamSpecsToBrackets(spec.inputs) +
+    spec.filter +
+    filterOptionsToString(spec.options) +
+    streamSpecsToBrackets(spec.outputs)
+  );
+}
+
+function makeFilterStrings(filters: (string | FilterSpec)[]): string[] {
+  return filters.map(filterSpecToString);
+}
+
+function whichCached(name: string, callback: WhichCallback): void {
+  if (name in whichCache) {
+    callback(null, whichCache[name]);
+    return;
+  }
+  which(name)
+    .then((result) => callback(null, (whichCache[name] = result)))
+    .catch(() => callback(null, (whichCache[name] = '')));
+}
+
+function timemarkToSeconds(timemark: string | number): number {
+  if (typeof timemark === 'number') return timemark;
+  if (!timemark.includes(':') && timemark.includes('.')) return Number(timemark);
+
+  const parts = timemark.split(':').map(Number);
+  const seconds = parts.pop() ?? 0;
+  const minutes = parts.pop() ?? 0;
+  const hours = parts.pop() ?? 0;
+  return hours * SECONDS_PER_HOUR + minutes * SECONDS_PER_MINUTE + seconds;
+}
+
+const inputPattern = /Input #[0-9]+, ([^ ]+),/;
+const durPattern = /Duration: ([^,]+)/;
+const audioPattern = /Audio: (.*)/;
+const videoPattern = /Video: (.*)/;
+const outputStartPattern = /Output #\d+/;
+const codecDataDonePattern = /Stream mapping:|Press (\[q\]|ctrl-c) to stop/;
+
+function ensureCodecState(state: CodecState): Required<CodecState> {
+  state.inputStack ??= [];
+  state.inputIndex ??= -1;
+  state.inInput ??= false;
+  return state as Required<CodecState>;
+}
+
+function tryStartInput(line: string, state: Required<CodecState>): boolean {
+  const match = line.match(inputPattern);
+  if (!match) return false;
+  state.inInput = true;
+  state.inputIndex += 1;
+  state.inputStack[state.inputIndex] = {
+    format: match[1],
+    audio: '',
+    video: '',
+    duration: '',
+  };
+  return true;
+}
+
+function applyDuration(line: string, state: Required<CodecState>): boolean {
+  const match = line.match(durPattern);
+  if (!match) return false;
+  state.inputStack[state.inputIndex].duration = match[1];
+  return true;
+}
+
+function applyAudio(line: string, state: Required<CodecState>): boolean {
+  const match = line.match(audioPattern);
+  if (!match) return false;
+  const parts = match[1].split(', ');
+  const slot = state.inputStack[state.inputIndex];
+  slot.audio = parts[0];
+  slot.audio_details = parts;
+  return true;
+}
+
+function applyVideo(line: string, state: Required<CodecState>): boolean {
+  const match = line.match(videoPattern);
+  if (!match) return false;
+  const parts = match[1].split(', ');
+  const slot = state.inputStack[state.inputIndex];
+  slot.video = parts[0];
+  slot.video_details = parts;
+  return true;
+}
+
+function extractCodecData(
+  command: CommandLike,
+  stderrLine: string,
+  codecsObject: CodecState,
+): boolean {
+  const state = ensureCodecState(codecsObject);
+
+  if (tryStartInput(stderrLine, state)) return false;
+  if (state.inInput) {
+    if (applyDuration(stderrLine, state)) return false;
+    if (applyAudio(stderrLine, state)) return false;
+    if (applyVideo(stderrLine, state)) return false;
+  }
+  if (outputStartPattern.test(stderrLine)) {
+    state.inInput = false;
+    return false;
+  }
+  if (codecDataDonePattern.test(stderrLine)) {
+    command.emit('codecData', ...state.inputStack);
+    return true;
+  }
+  return false;
+}
+
+function parseProgressLine(line: string): Record<string, string> | null {
+  const trimmed = line.replace(/=\s+/g, '=').trim();
+  const progress: Record<string, string> = {};
+  const allValid = trimmed.split(' ').every((part) => {
+    const [key, value] = part.split('=', 2);
+    if (value === undefined) return false;
+    progress[key] = value;
+    return true;
+  });
+  return allValid ? progress : null;
+}
+
+function extractProgress(command: CommandLike, stderrLine: string): void {
+  const progress = parseProgressLine(stderrLine);
+  if (!progress) return;
+
+  const ret: ProgressReport = {
+    frames: parseInt(progress.frame, 10),
+    currentFps: parseInt(progress.fps, 10),
+    currentKbps: progress.bitrate ? parseFloat(progress.bitrate.replace('kbits/s', '')) : 0,
+    targetSize: parseInt(progress.size || progress.Lsize, 10),
+    timemark: progress.time,
+  };
+
+  const duration = Number(command._ffprobeData?.format?.duration);
+  if (!Number.isNaN(duration)) {
+    ret.percent = (timemarkToSeconds(ret.timemark) / duration) * 100;
+  }
+  command.emit('progress', ret);
+}
+
+function extractError(stderr: string): string {
+  return stderr
+    .split(nlRegexp)
+    .reduce<string[]>((messages, message) => {
+      const head = message.charAt(0);
+      if (head === ' ' || head === '[') return [];
+      messages.push(message);
+      return messages;
+    }, [])
+    .join('\n');
+}
+
+function makeLinesRing(maxLines: number): LinesRing {
+  const cbs: ((line: string) => void)[] = [];
+  const lines: string[] = [];
+  let current: string | null = null;
+  let closed = false;
+  const max = maxLines - 1;
+
+  const emit = (line: string) => cbs.forEach((cb) => cb(line));
+
+  const trimToMax = () => {
+    if (max > -1 && lines.length > max) {
+      lines.splice(0, lines.length - max);
+    }
+  };
+
+  const recordLine = (line: string) => {
+    emit(line);
+    lines.push(line);
+  };
+
+  const appendString = (str: string) => {
+    const newLines = str.split(nlRegexp);
+    if (newLines.length === 1) {
+      current = (current ?? '') + newLines.shift();
+      return;
+    }
+    if (current !== null) {
+      recordLine(current + newLines.shift());
+    }
+    current = newLines.pop() ?? null;
+    newLines.forEach(recordLine);
+    trimToMax();
+  };
+
+  return {
+    callback(cb) {
+      lines.forEach((l) => cb(l));
+      cbs.push(cb);
+    },
+    append(strOrBuf) {
+      if (closed) return;
+      const str: string = typeof strOrBuf === 'string' ? strOrBuf : strOrBuf.toString();
+      if (str.length === 0) return;
+      appendString(str);
+    },
+    get() {
+      return current === null ? lines.join('\n') : lines.concat([current]).join('\n');
+    },
+    close() {
+      if (closed) return;
+      if (current !== null) {
+        recordLine(current);
+        if (max > -1 && lines.length > max) lines.shift();
+        current = null;
+      }
+      closed = true;
+    },
+  };
+}
+
+const utils = {
+  isWindows,
+  streamRegexp,
+  copy,
+  args: makeArgList,
+  makeFilterStrings,
+  which: whichCached,
+  timemarkToSeconds,
+  extractCodecData,
+  extractProgress,
+  extractError,
+  linesRing: makeLinesRing,
 };
+
+export = utils;
