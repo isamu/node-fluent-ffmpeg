@@ -57,7 +57,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "build": "tsc -p tsconfig.build.json",
     "test": "node --import tsx --test --test-reporter=spec \"test/**/*.test.ts\"",
-    "test:legacy": "NODE_ENV=test mocha --require tsx/cjs --require should --reporter spec test/*.test.js",
+    "test:legacy": "NODE_ENV=test NODE_OPTIONS='--import tsx' mocha --require should --reporter spec test/*.test.js",
     "coverage": "nyc report --reporter=lcov"
   }
 }
