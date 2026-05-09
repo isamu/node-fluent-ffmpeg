@@ -100,7 +100,7 @@ function callbackify<T>(
 ): void {
   promise.then(
     (value) => callback(null, value),
-    (err) => callback(err as Error),
+    (err: unknown) => callback(err instanceof Error ? err : new Error(String(err))),
   );
 }
 
@@ -234,8 +234,9 @@ function findUnavailableFormats(
   return containers.reduce<string[]>((acc, container) => {
     const found = container.options.find('-f', 1);
     if (!found) return acc;
-    const name = found[0] as string;
-    if (!(name in formats) || !predicate(formats[name])) acc.push(name);
+    const head = found[0];
+    if (typeof head !== 'string') return acc;
+    if (!(head in formats) || !predicate(formats[head])) acc.push(head);
     return acc;
   }, []);
 }
@@ -253,9 +254,10 @@ function findUnavailableCodecs(
     const list = kind === 'audio' ? output.audio : output.video;
     const found = list.find(flag, 1);
     if (!found) return acc;
-    const name = found[0] as string;
-    if (name === 'copy') return acc;
-    if (!(name in encoders) || encoders[name].type !== kind) acc.push(name);
+    const head = found[0];
+    if (typeof head !== 'string') return acc;
+    if (head === 'copy') return acc;
+    if (!(head in encoders) || encoders[head].type !== kind) acc.push(head);
     return acc;
   }, []);
 }
@@ -435,7 +437,7 @@ function applyCapabilities(proto: FfmpegCommandPrototype): void {
       if (videoErr) throw videoErr;
     })().then(
       () => callback(),
-      (err) => callback(err as Error),
+      (err: unknown) => callback(err instanceof Error ? err : new Error(String(err))),
     );
   };
 }

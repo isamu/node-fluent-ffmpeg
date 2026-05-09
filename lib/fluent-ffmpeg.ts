@@ -95,6 +95,12 @@ function FfmpegCommandImpl(
   input?: FfmpegInput,
   options?: FfmpegCommandOptions,
 ): FfmpegCommand | undefined {
+  // Three structural `as` casts remain in this file (here, line 134, line
+  // 138). They wire a function `FfmpegCommandImpl` up to the
+  // `FfmpegCommandStatic` shape (callable + `new`-able + static methods),
+  // which TypeScript cannot express without converting the whole factory
+  // to a class — a refactor that would also lose the legacy "callable
+  // without new" semantic that consumers depend on.
   if (!(this instanceof FfmpegCommand)) {
     return new (FfmpegCommand as new (i?: FfmpegInput, o?: FfmpegCommandOptions) => FfmpegCommand)(
       input,
@@ -109,9 +115,11 @@ function FfmpegCommandImpl(
   } else {
     // Match legacy: unconditional source assignment, including undefined,
     // so `new FfmpegCommand(undefined, { source: 'foo' })` clears `source`
-    // exactly the way the legacy constructor did.
+    // exactly the way the legacy constructor did. The else-branch narrows
+    // `input` to `Exclude<FfmpegInput, FfmpegCommandOptions>` =
+    // `string | Readable | undefined`, which is structurally `opts.source`.
     opts = options ?? {};
-    opts.source = input as string | Readable | undefined;
+    opts.source = input;
   }
 
   this._inputs = [];
