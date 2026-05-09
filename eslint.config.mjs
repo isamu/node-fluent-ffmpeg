@@ -23,10 +23,6 @@ export default [
       sourceType: 'commonjs',
       globals: { ...globals.node },
     },
-    rules: {
-      '@typescript-eslint/no-require-imports': 'off',
-      '@typescript-eslint/no-unused-vars': 'off',
-    },
   },
   {
     files: ['**/*.ts', '**/*.mts'],
@@ -192,18 +188,13 @@ export default [
   {
     files: ['test/**/*.ts'],
     rules: {
-      '@typescript-eslint/no-explicit-any': 'warn',
+      '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/no-non-null-assertion': 'off',
-      'no-shadow': 'off',
-      'no-param-reassign': 'off',
-      'prefer-destructuring': 'off',
-      complexity: 'off',
-      'max-depth': 'off',
-      'consistent-return': 'off',
-      'sonarjs/cognitive-complexity': 'off',
+      'no-shadow': 'error',
+      'no-param-reassign': 'error',
+      'prefer-destructuring': 'error',
+      'consistent-return': 'error',
       'sonarjs/publicly-writable-directories': 'off',
-      'sonarjs/file-permissions': 'off',
-      'sonarjs/no-clear-text-protocols': 'off',
       'sonarjs/os-command': 'off',
       // Test callbacks have shape (err: Error|null, ...) — when reject(err)
       // fires, err is non-null Error by control flow, but TS doesn't narrow
