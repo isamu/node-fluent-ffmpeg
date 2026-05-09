@@ -1,6 +1,14 @@
-import { Buffer } from 'node:buffer';
 import { platform } from 'node:os';
 import which from 'which';
+import type {
+  ArgList,
+  ArgValue,
+  CodecState,
+  CommandLike,
+  FilterSpec,
+  LinesRing,
+  ProgressReport,
+} from './types.js';
 
 const SECONDS_PER_MINUTE = 60;
 const SECONDS_PER_HOUR = 3600;
@@ -14,58 +22,6 @@ const whichCache: Record<string, string> = {};
 
 type WhichCallback = (err: null, path: string) => void;
 
-interface ArgList {
-  (...args: (string | string[])[]): void;
-  clear(): void;
-  get(): string[];
-  find(arg: string, count?: number): string[] | undefined;
-  remove(arg: string, count?: number): void;
-  clone(): ArgList;
-}
-
-interface FilterSpec {
-  filter: string;
-  inputs?: string | string[];
-  outputs?: string | string[];
-  options?: string | number | unknown[] | Record<string, unknown>;
-}
-
-interface InputInfo {
-  format: string;
-  audio: string;
-  video: string;
-  duration: string;
-  audio_details?: string[];
-  video_details?: string[];
-}
-
-interface CodecState {
-  inputStack?: InputInfo[];
-  inputIndex?: number;
-  inInput?: boolean;
-}
-
-interface CommandLike {
-  emit(event: string, ...args: unknown[]): boolean;
-  _ffprobeData?: { format?: { duration?: string | number } };
-}
-
-interface LinesRing {
-  callback(cb: (line: string) => void): void;
-  append(str: string | Buffer): void;
-  get(): string;
-  close(): void;
-}
-
-interface ProgressReport {
-  frames: number;
-  currentFps: number;
-  currentKbps: number;
-  targetSize: number;
-  timemark: string;
-  percent?: number;
-}
-
 function copy<S extends object>(source: S, dest: Record<string, unknown>): void {
   Object.keys(source).forEach((key) => {
     dest[key] = (source as Record<string, unknown>)[key];
@@ -73,13 +29,13 @@ function copy<S extends object>(source: S, dest: Record<string, unknown>): void 
 }
 
 function makeArgList(): ArgList {
-  let list: string[] = [];
+  let list: ArgValue[] = [];
 
-  const argfunc = ((...args: (string | string[])[]) => {
+  const argfunc = ((...args: (ArgValue | ArgValue[])[]) => {
     if (args.length === 1 && Array.isArray(args[0])) {
       list = list.concat(args[0]);
     } else {
-      list = list.concat(args as string[]);
+      list = list.concat(args as ArgValue[]);
     }
   }) as ArgList;
 
