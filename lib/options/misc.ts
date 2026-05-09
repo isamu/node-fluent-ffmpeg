@@ -8,18 +8,26 @@ interface PresetModule {
   load?: (cmd: FfmpegCommandThis) => void;
 }
 
+function isPresetModule(value: unknown): value is PresetModule {
+  return typeof value === 'object' && value !== null;
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 function loadPresetByName(this: FfmpegCommandThis, preset: string): void {
   const modulePath = path.join(this.options.presets ?? '', preset);
   // Match legacy: a single try/catch wraps both the require AND the load() call,
   // so any failure surfaces as 'preset <path> could not be loaded: ...'.
   try {
-    const mod = requireFromHere(modulePath) as PresetModule;
-    if (typeof mod.load !== 'function') {
+    const mod: unknown = requireFromHere(modulePath);
+    if (!isPresetModule(mod) || typeof mod.load !== 'function') {
       throw new Error(`preset ${modulePath} has no load() function`);
     }
     mod.load(this);
   } catch (err) {
-    throw new Error(`preset ${modulePath} could not be loaded: ${(err as Error).message}`, {
+    throw new Error(`preset ${modulePath} could not be loaded: ${errorMessage(err)}`, {
       cause: err,
     });
   }

@@ -22,13 +22,20 @@ const whichCache: Record<string, string> = {};
 
 type WhichCallback = (err: null, path: string) => void;
 
-function copy<S extends object>(source: S, dest: Record<string, unknown>): void {
+function copy<S extends Record<string, unknown>>(source: S, dest: Record<string, unknown>): void {
   Object.keys(source).forEach((key) => {
-    dest[key] = (source as Record<string, unknown>)[key];
+    dest[key] = source[key];
   });
 }
 
 function makeArgList(): ArgList {
+  // The legacy semantic is intentional and observable: a single array
+  // argument is spread into the list, but multiple arguments (each of
+  // which may be an array) are appended as-is — array elements stay as
+  // nested arrays rather than being flattened. The two `as` casts below
+  // are kept because removing them would force ArgList's element type
+  // to become `ArgValue | ArgValue[]`, which propagates through every
+  // consumer of get/find/clone.
   let list: ArgValue[] = [];
 
   const argfunc = ((...args: (ArgValue | ArgValue[])[]) => {
@@ -131,11 +138,10 @@ const videoPattern = /Video: (.*)/;
 const outputStartPattern = /Output #\d+/;
 const codecDataDonePattern = /Stream mapping:|Press (\[q\]|ctrl-c) to stop/;
 
-function ensureCodecState(state: CodecState): Required<CodecState> {
+function ensureCodecState(state: CodecState): asserts state is Required<CodecState> {
   state.inputStack ??= [];
   state.inputIndex ??= -1;
   state.inInput ??= false;
-  return state as Required<CodecState>;
 }
 
 function tryStartInput(line: string, state: Required<CodecState>): boolean {
@@ -184,7 +190,8 @@ function extractCodecData(
   stderrLine: string,
   codecsObject: CodecState,
 ): boolean {
-  const state = ensureCodecState(codecsObject);
+  ensureCodecState(codecsObject);
+  const state = codecsObject;
 
   if (tryStartInput(stderrLine, state)) return false;
   if (state.inInput) {

@@ -29,7 +29,9 @@ function applyInputsOptions(proto: FfmpegCommandPrototype): void {
           if (hasInputStream) {
             throw new Error('Only one input stream is supported');
           }
-          (source as Readable).pause();
+          // classifySource only sets isStream when source is a Readable;
+          // re-narrowing via the type guard avoids `as Readable`.
+          if (isReadable(source)) source.pause();
         }
 
         const newInput: InputState = {

@@ -2,13 +2,16 @@ import utils from '../utils.js';
 import type { FfmpegCommandPrototype, FfmpegCommandThis, FilterSpec } from '../types.js';
 
 function flattenOptions(args: (string | string[])[], doSplit: boolean): string[] {
-  const list = args.length > 1 ? (args as string[]) : Array.isArray(args[0]) ? args[0] : [args[0]];
+  // Caller may pass options as multiple positional args (`'-ss', '00:00:10'`)
+  // or a single array (`['-ss', '00:00:10']`). `args.flat()` normalises both
+  // into a `string[]` so the reducer sees plain strings.
+  const list: string[] = args.length === 1 && Array.isArray(args[0]) ? args[0] : args.flat();
   return list.reduce<string[]>((acc, option) => {
-    const split = String(option).split(' ');
+    const split = option.split(' ');
     if (doSplit && split.length === 2) {
       acc.push(split[0], split[1]);
     } else {
-      acc.push(option as string);
+      acc.push(option);
     }
     return acc;
   }, []);
