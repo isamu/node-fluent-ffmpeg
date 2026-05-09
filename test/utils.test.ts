@@ -2,6 +2,7 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { Buffer } from 'node:buffer';
 import utils from '../lib/utils.js';
+import type { CodecState, ProgressReport } from '../lib/types.js';
 
 describe('utils.isWindows', () => {
   it('is a boolean reflecting the host platform', () => {
@@ -548,11 +549,16 @@ describe('utils.linesRing', () => {
 });
 
 describe('utils.extractCodecData', () => {
-  function makeEmitter(): {
-    events: { event: string; args: unknown[] }[];
+  interface RecordedEvent {
+    event: string;
+    args: unknown[];
+  }
+  interface MockEmitter {
+    events: RecordedEvent[];
     emit: (event: string, ...args: unknown[]) => boolean;
-  } {
-    const events: { event: string; args: unknown[] }[] = [];
+  }
+  function makeEmitter(): MockEmitter {
+    const events: RecordedEvent[] = [];
     return {
       events,
       emit: (event, ...args) => {
@@ -564,14 +570,14 @@ describe('utils.extractCodecData', () => {
 
   it('returns false and stays silent on a line that matches no pattern', () => {
     const command = makeEmitter();
-    const state = {};
+    const state: CodecState = {};
     assert.equal(utils.extractCodecData(command, '   noise', state), false);
     assert.deepEqual(command.events, []);
   });
 
   it('starts an input record on an "Input #0, fmt," line', () => {
     const command = makeEmitter();
-    const state = {};
+    const state: CodecState = {};
     utils.extractCodecData(command, 'Input #0, mov,mp4,m4a, from foo.mp4', state);
     assert.deepEqual(state, {
       inputStack: [{ format: 'mov,mp4,m4a', audio: '', video: '', duration: '' }],
@@ -582,52 +588,41 @@ describe('utils.extractCodecData', () => {
 
   it('captures duration on a Duration: line while inInput', () => {
     const command = makeEmitter();
-    const state = {};
+    const state: CodecState = {};
     utils.extractCodecData(command, 'Input #0, avi, from foo.avi:', state);
     utils.extractCodecData(command, '  Duration: 00:00:10.00, start: 0.000000', state);
-    const stack = (state as { inputStack: { duration: string }[] }).inputStack;
-    assert.equal(stack[0].duration, '00:00:10.00');
+    assert.equal(state.inputStack?.[0]?.duration, '00:00:10.00');
   });
 
   it('captures audio details on an Audio: line while inInput', () => {
     const command = makeEmitter();
-    const state = {};
+    const state: CodecState = {};
     utils.extractCodecData(command, 'Input #0, avi, from foo.avi:', state);
     utils.extractCodecData(command, '  Stream #0:0: Audio: aac, 44100 Hz, stereo', state);
-    const [slot] = (
-      state as {
-        inputStack: { audio: string; audio_details?: string[] }[];
-      }
-    ).inputStack;
-    assert.equal(slot.audio, 'aac');
-    assert.deepEqual(slot.audio_details, ['aac', '44100 Hz', 'stereo']);
+    assert.equal(state.inputStack?.[0]?.audio, 'aac');
+    assert.deepEqual(state.inputStack?.[0]?.audio_details, ['aac', '44100 Hz', 'stereo']);
   });
 
   it('captures video details on a Video: line while inInput', () => {
     const command = makeEmitter();
-    const state = {};
+    const state: CodecState = {};
     utils.extractCodecData(command, 'Input #0, avi, from foo.avi:', state);
     utils.extractCodecData(command, '  Stream #0:1: Video: h264, yuv420p, 1024x768', state);
-    const [slot] = (
-      state as {
-        inputStack: { video: string; video_details?: string[] }[];
-      }
-    ).inputStack;
-    assert.equal(slot.video, 'h264');
-    assert.deepEqual(slot.video_details, ['h264', 'yuv420p', '1024x768']);
+    assert.equal(state.inputStack?.[0]?.video, 'h264');
+    assert.deepEqual(state.inputStack?.[0]?.video_details, ['h264', 'yuv420p', '1024x768']);
   });
 
   it('flips inInput off when an "Output #" line arrives', () => {
     const command = makeEmitter();
-    const state = {};
+    const state: CodecState = {};
     utils.extractCodecData(command, 'Input #0, avi, from foo.avi:', state);
     utils.extractCodecData(command, 'Output #0, mp4, to bar.mp4', state);
-    assert.equal((state as { inInput: boolean }).inInput, false);
+    assert.equal(state.inInput, false);
   });
 
   it('emits codecData and returns true on the "Press [q] to stop" marker', () => {
     const command = makeEmitter();
-    const state = {};
+    const state: CodecState = {};
     utils.extractCodecData(command, 'Input #0, mov, from foo.mp4', state);
     const done = utils.extractCodecData(command, 'Press [q] to stop, [?] for help', state);
     assert.equal(done, true);
@@ -638,7 +633,7 @@ describe('utils.extractCodecData', () => {
 
   it('emits codecData on a "Stream mapping:" marker', () => {
     const command = makeEmitter();
-    const state = {};
+    const state: CodecState = {};
     utils.extractCodecData(command, 'Input #0, mov, from foo.mp4', state);
     const done = utils.extractCodecData(command, 'Stream mapping:', state);
     assert.equal(done, true);
@@ -647,7 +642,7 @@ describe('utils.extractCodecData', () => {
 
   it('handles multiple inputs and emits all entries on done', () => {
     const command = makeEmitter();
-    const state = {};
+    const state: CodecState = {};
     utils.extractCodecData(command, 'Input #0, avi, from a.avi', state);
     utils.extractCodecData(command, 'Input #1, avi, from b.avi', state);
     utils.extractCodecData(command, 'Stream mapping:', state);
@@ -657,16 +652,26 @@ describe('utils.extractCodecData', () => {
 
   it('skips Audio/Video/Duration lines outside an input block', () => {
     const command = makeEmitter();
-    const state = {};
+    const state: CodecState = {};
     // No "Input #" yet, so inInput is false. The line should be ignored.
     utils.extractCodecData(command, '  Audio: aac, 44100 Hz', state);
-    assert.deepEqual((state as { inputStack: unknown[] }).inputStack ?? [], []);
+    assert.deepEqual(state.inputStack ?? [], []);
   });
 });
 
 describe('utils.extractProgress', () => {
+  function isProgressReport(value: unknown): value is ProgressReport {
+    return (
+      typeof value === 'object' &&
+      value !== null &&
+      'frames' in value &&
+      'currentFps' in value &&
+      'timemark' in value
+    );
+  }
+
   interface MockCommand {
-    events: { event: string; args: unknown[] }[];
+    progresses: ProgressReport[];
     emit: (event: string, ...args: unknown[]) => boolean;
     _ffprobeData?: {
       format: { duration?: string | number };
@@ -674,12 +679,15 @@ describe('utils.extractProgress', () => {
       chapters: never[];
     };
   }
+
   function makeCommand(duration?: string | number): MockCommand {
-    const events: { event: string; args: unknown[] }[] = [];
+    const progresses: ProgressReport[] = [];
     return {
-      events,
+      progresses,
       emit: (event, ...args) => {
-        events.push({ event, args });
+        if (event === 'progress' && isProgressReport(args[0])) {
+          progresses.push(args[0]);
+        }
         return true;
       },
       _ffprobeData:
@@ -699,8 +707,8 @@ describe('utils.extractProgress', () => {
       command,
       'frame=120 fps=30 q=20.0 size=1024kB time=00:00:04.00 bitrate=2000kbits/s speed=1.0x',
     );
-    assert.equal(command.events.length, 1);
-    const data = command.events[0].args[0] as Record<string, unknown>;
+    assert.equal(command.progresses.length, 1);
+    const [data] = command.progresses;
     assert.equal(data.frames, 120);
     assert.equal(data.currentFps, 30);
     assert.equal(data.currentKbps, 2000);
@@ -711,48 +719,48 @@ describe('utils.extractProgress', () => {
   it('does not emit when the line is missing the key=value shape', () => {
     const command = makeCommand();
     utils.extractProgress(command, 'irrelevant log line');
-    assert.equal(command.events.length, 0);
+    assert.equal(command.progresses.length, 0);
   });
 
   it('falls back to Lsize when size is absent', () => {
     const command = makeCommand();
     utils.extractProgress(command, 'frame=1 fps=1 Lsize=42 time=00:00:00.10 bitrate=1kbits/s');
-    const data = command.events[0].args[0] as Record<string, unknown>;
+    const [data] = command.progresses;
     assert.equal(data.targetSize, 42);
   });
 
   it('treats absent bitrate as 0 kbps', () => {
     const command = makeCommand();
     utils.extractProgress(command, 'frame=1 fps=1 size=1 time=00:00:00.10 dummy=x');
-    const data = command.events[0].args[0] as Record<string, unknown>;
+    const [data] = command.progresses;
     assert.equal(data.currentKbps, 0);
   });
 
   it('parses bitrate even when the value lacks the kbits/s suffix', () => {
     const command = makeCommand();
     utils.extractProgress(command, 'frame=1 fps=1 size=1 time=00:00:00.10 bitrate=512');
-    const data = command.events[0].args[0] as Record<string, unknown>;
+    const [data] = command.progresses;
     assert.equal(data.currentKbps, 512);
   });
 
   it('omits percent when no ffprobe duration is available', () => {
     const command = makeCommand();
     utils.extractProgress(command, 'frame=1 fps=1 size=1 time=00:00:01.00 bitrate=1kbits/s');
-    const data = command.events[0].args[0] as Record<string, unknown>;
+    const [data] = command.progresses;
     assert.equal('percent' in data, false);
   });
 
   it('computes percent when ffprobe duration is available', () => {
     const command = makeCommand(10);
     utils.extractProgress(command, 'frame=1 fps=1 size=1 time=00:00:05.00 bitrate=1kbits/s');
-    const data = command.events[0].args[0] as Record<string, unknown>;
+    const [data] = command.progresses;
     assert.equal(data.percent, 50);
   });
 
   it('NaN ffprobe duration disables percent computation', () => {
     const command = makeCommand('not a number');
     utils.extractProgress(command, 'frame=1 fps=1 size=1 time=00:00:05.00 bitrate=1kbits/s');
-    const data = command.events[0].args[0] as Record<string, unknown>;
+    const [data] = command.progresses;
     assert.equal('percent' in data, false);
   });
 
@@ -762,10 +770,53 @@ describe('utils.extractProgress', () => {
       command,
       'frame= 24 fps= 12 size= 100 time=00:00:01.00 bitrate= 8kbits/s',
     );
-    const data = command.events[0].args[0] as Record<string, unknown>;
+    const [data] = command.progresses;
     assert.equal(data.frames, 24);
     assert.equal(data.currentFps, 12);
     assert.equal(data.targetSize, 100);
     assert.equal(data.currentKbps, 8);
+  });
+});
+
+describe('utils.which (callback wrapper around which@7)', () => {
+  // The wrapper resolves a binary name against the user's PATH, never errors
+  // (failures resolve to '' so the lookup still completes), and caches the
+  // result so a second call for the same name is synchronous.
+
+  it('resolves a known-present binary to a non-empty absolute-ish string', async () => {
+    // node is on PATH in any environment we run tests in.
+    const found = await new Promise<string>((resolve) => {
+      utils.which('node', (_err, path) => resolve(path));
+    });
+    assert.equal(typeof found, 'string');
+    assert.ok(found.length > 0);
+  });
+
+  it('resolves an unknown binary name to the empty string (does not throw)', async () => {
+    const found = await new Promise<string>((resolve) => {
+      utils.which(`__definitely_missing_${Date.now()}__`, (_err, path) => resolve(path));
+    });
+    assert.equal(found, '');
+  });
+
+  it('caches the lookup so repeat calls fire the callback synchronously', async () => {
+    // Prime the cache.
+    await new Promise<string>((resolve) => {
+      utils.which('node', (_err, path) => resolve(path));
+    });
+
+    // Second call: fire and observe whether the callback runs before the next
+    // line. The legacy capabilities.test.ts uses this exact 'after = 0; ...; after = 1'
+    // trick to assert synchronous resolution.
+    let postCallSync = 0;
+    let observedDuringCallback = -1;
+    let cachedValue = '';
+    utils.which('node', (_err, path) => {
+      observedDuringCallback = postCallSync;
+      cachedValue = path;
+    });
+    postCallSync = 1;
+    assert.equal(observedDuringCallback, 0, 'cached lookup must be synchronous');
+    assert.ok(cachedValue.length > 0);
   });
 });
