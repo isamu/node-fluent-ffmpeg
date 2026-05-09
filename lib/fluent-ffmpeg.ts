@@ -84,8 +84,10 @@ function isOptionsObject(value: unknown): value is FfmpegCommandOptions {
 
 function applyDefaults(options: FfmpegCommandOptions): void {
   options.stdoutLines = 'stdoutLines' in options ? options.stdoutLines : DEFAULT_STDOUT_LINES;
-  options.presets = options.presets ?? options.preset ?? path.join(__dirname, 'presets');
-  options.niceness = options.niceness ?? options.priority ?? 0;
+  // Legacy used `||` (falsy fallback). Keep that exactly so '' presets and
+  // niceness:0 with a priority set still inherit the right value.
+  options.presets = options.presets || options.preset || path.join(__dirname, 'presets');
+  options.niceness = options.niceness || options.priority || 0;
 }
 
 function FfmpegCommandImpl(
