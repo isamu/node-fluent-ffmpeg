@@ -239,6 +239,9 @@ function buildScreenshotFilters(
 
   if (config.size !== undefined) {
     self.size(config.size);
+    // The `as FilterSpec[]` cast stays until ArgList becomes generic in
+    // its element type. Here sizeFilters' callsite stores FilterSpec
+    // entries; ArgList.get() returns the union ArgValue[].
     const sizeFilters = (self._currentOutput!.sizeFilters.get() as FilterSpec[]).map((f, i) => {
       if (i > 0) f.inputs = `size${i - 1}`;
       f.outputs = `size${i}`;
@@ -284,13 +287,22 @@ function applyRecipes(proto: FfmpegCommandPrototype): void {
         streamArg?: Writable | Record<string, unknown>,
         options?: Record<string, unknown>,
       ) {
+        // Distinguish a Writable-stream argument from a plain options
+        // object via duck-typing on `.pipe`. `'writable' in X` alone
+        // does not narrow the union for TypeScript, so a type predicate
+        // is required.
+        const isWritableStream = (v: unknown): v is Writable => {
+          if (typeof v !== 'object' || v === null) return false;
+          if (!('pipe' in v)) return false;
+          return typeof v.pipe === 'function';
+        };
+
         let stream: Writable | undefined;
         let opts = options;
-        if (streamArg && typeof streamArg === 'object' && !('writable' in streamArg)) {
-          opts = streamArg as Record<string, unknown>;
-          stream = undefined;
-        } else {
-          stream = streamArg as Writable | undefined;
+        if (isWritableStream(streamArg)) {
+          stream = streamArg;
+        } else if (streamArg) {
+          opts = streamArg;
         }
         if (!stream) stream = new PassThrough();
         this.output(stream, opts).run();
@@ -311,7 +323,7 @@ function applyRecipes(proto: FfmpegCommandPrototype): void {
         (async () => {
           await resolvePercentTimemarks(config, source, getMetadata);
           config.timemarks = config
-            .timemarks!.map((m) => utils.timemarkToSeconds(m as string))
+            .timemarks!.map((m) => utils.timemarkToSeconds(m))
             .sort((a, b) => a - b);
 
           let pattern = fixPattern(config);
