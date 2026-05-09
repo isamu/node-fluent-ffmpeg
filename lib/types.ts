@@ -170,6 +170,10 @@ export interface FfprobeStream {
   index?: number;
   codec_name?: string;
   codec_long_name?: string;
+  // ffprobe profile values are textual at runtime (e.g. "Main", "High"),
+  // but upstream `@types/fluent-ffmpeg` declares this as `number`.
+  // Kept verbatim for compat — diverging would silently break consumer
+  // code that targeted the upstream types.
   profile?: number;
   codec_type?: string;
   codec_time_base?: string;

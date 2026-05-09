@@ -5,7 +5,6 @@ import type {
   ArgValue,
   FfmpegCommandPrototype,
   FfmpegCommandThis,
-  FfprobeData,
   FilterSpec,
   InputState,
   LinesRing,
@@ -37,8 +36,13 @@ function isStreamOutput(output: OutputState): boolean {
 function runFfprobeIntoCommand(command: FfmpegCommandThis): void {
   const inputProbeIndex = 0;
   if (command._inputs[inputProbeIndex]?.isStream) return;
-  command.ffprobe(inputProbeIndex, (_err, data) => {
-    if (data) command._ffprobeData = data;
+  command.ffprobe(inputProbeIndex, (err, data) => {
+    // FfprobeCallback now declares `data` as non-optional; on error
+    // the impl passes a shared empty FfprobeData sentinel to honour
+    // the contract. Skip caching that sentinel so `_ffprobeData`
+    // stays unset when probing failed.
+    if (err) return;
+    command._ffprobeData = data;
   });
 }
 
@@ -359,8 +363,10 @@ function applyProcessor(proto: FfmpegCommandPrototype): void {
       });
     const readFfprobe = (): Promise<void> =>
       new Promise((resolve) => {
-        this.ffprobe(0, (_err: Error | null, data?: FfprobeData) => {
-          if (data) this._ffprobeData = data;
+        this.ffprobe(0, (err, data) => {
+          // Skip caching the sentinel data emitted on probe error
+          // (see runFfprobeIntoCommand for the rationale).
+          if (!err) this._ffprobeData = data;
           resolve();
         });
       });
