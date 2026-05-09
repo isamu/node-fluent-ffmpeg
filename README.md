@@ -1,5 +1,11 @@
 # @modernized/fluent-ffmpeg
 
+[![npm version](https://img.shields.io/npm/v/@modernized/fluent-ffmpeg.svg)](https://www.npmjs.com/package/@modernized/fluent-ffmpeg)
+[![npm downloads](https://img.shields.io/npm/dm/@modernized/fluent-ffmpeg.svg)](https://www.npmjs.com/package/@modernized/fluent-ffmpeg)
+[![License: MIT](https://img.shields.io/npm/l/@modernized/fluent-ffmpeg.svg)](LICENSE)
+[![CI](https://github.com/modernized-js/node-fluent-ffmpeg/actions/workflows/ci.yml/badge.svg)](https://github.com/modernized-js/node-fluent-ffmpeg/actions/workflows/ci.yml)
+[![GitHub stars](https://img.shields.io/github/stars/modernized-js/node-fluent-ffmpeg.svg?style=social)](https://github.com/modernized-js/node-fluent-ffmpeg/stargazers)
+
 > A maintained fork of [`fluent-ffmpeg`](https://github.com/fluent-ffmpeg/node-fluent-ffmpeg), rewritten in TypeScript and re-published under the `@modernized` scope. Upstream went read-only in 2024; this fork keeps the fluent ffmpeg-CLI wrapper alive on modern Node (>= 22), modern toolchain (ESLint 10, TypeScript 6, Prettier), and Node's native `node:test` runner.
 
 ## About
