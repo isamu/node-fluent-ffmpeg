@@ -5,7 +5,7 @@ import type {
   OutputState,
 } from '../types.js';
 
-function getScalePadFilters(
+export function getScalePadFilters(
   width: number,
   height: number,
   aspect: number,
@@ -32,7 +32,7 @@ function getScalePadFilters(
   ];
 }
 
-function percentScaleFilter(percent: string): FilterSpec[] {
+export function percentScaleFilter(percent: string): FilterSpec[] {
   const ratio = Number(percent) / 100;
   return [
     {
@@ -45,14 +45,14 @@ function percentScaleFilter(percent: string): FilterSpec[] {
   ];
 }
 
-function fixedSizeFilters(width: number, height: number, pad: string | false): FilterSpec[] {
+export function fixedSizeFilters(width: number, height: number, pad: string | false): FilterSpec[] {
   if (pad) {
     return getScalePadFilters(width, height, width / height, pad);
   }
   return [{ filter: 'scale', options: { w: width, h: height } }];
 }
 
-function partialSizeFilters(
+export function partialSizeFilters(
   fixedWidth: RegExpMatchArray | null,
   fixedHeight: RegExpMatchArray | null,
   data: NonNullable<OutputState['sizeData']>,
@@ -198,4 +198,4 @@ function applyVideoSizeOptions(proto: FfmpegCommandPrototype): void {
       };
 }
 
-export = applyVideoSizeOptions;
+export default applyVideoSizeOptions;
