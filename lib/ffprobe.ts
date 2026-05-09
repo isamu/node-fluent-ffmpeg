@@ -5,7 +5,6 @@ import type {
   FfmpegCommandThis,
   FfprobeCallback,
   FfprobeData,
-  FfprobeStream,
   InputState,
 } from './types.js';
 
@@ -21,8 +20,14 @@ const tagPrefixRegexp = /^TAG:/;
 const dispositionPrefixRegexp = /^DISPOSITION:/;
 const stdinIgnorableErrors = new Set(['ECONNRESET', 'EPIPE', 'EOF']);
 
-function parseBlockBody(lines: string[], name: string): FfprobeStream {
-  const data: FfprobeStream = {};
+// Loose key/value shape produced by the ffprobe block parser. Both
+// FfprobeStream and FfprobeFormat have a `[key: string]: unknown`
+// index signature, so a Record<string, unknown> is structurally
+// assignable to either.
+type FfprobeBlockBody = Record<string, unknown>;
+
+function parseBlockBody(lines: string[], name: string): FfprobeBlockBody {
+  const data: FfprobeBlockBody = {};
   while (lines.length > 0) {
     const line = lines.shift()!;
     const closing = line.match(blockEndRegexp);
@@ -52,7 +57,11 @@ function parseFfprobeOutput(out: string): FfprobeData {
   return data;
 }
 
-function liftLegacyKeys(target: FfprobeStream, prefix: RegExp, dest: 'tags' | 'disposition'): void {
+function liftLegacyKeys(
+  target: FfprobeBlockBody,
+  prefix: RegExp,
+  dest: 'tags' | 'disposition',
+): void {
   const matchingKeys = Object.keys(target).filter((k) => prefix.test(k));
   if (matchingKeys.length === 0) return;
   target[dest] ??= {};
@@ -65,7 +74,8 @@ function liftLegacyKeys(target: FfprobeStream, prefix: RegExp, dest: 'tags' | 'd
 }
 
 function normaliseLegacyOutput(data: FfprobeData): void {
-  [data.format, ...data.streams].forEach((target) => {
+  const targets: FfprobeBlockBody[] = [data.format, ...data.streams];
+  targets.forEach((target) => {
     if (!target) return;
     liftLegacyKeys(target, tagPrefixRegexp, 'tags');
     liftLegacyKeys(target, dispositionPrefixRegexp, 'disposition');
@@ -106,6 +116,15 @@ function pickInput(
   return { input };
 }
 
+// Upstream `@types/fluent-ffmpeg` declares the ffprobe callback as
+// `(err: any, data: FfprobeData) => void` — i.e. non-optional `data`.
+// At runtime the convention is to pass an empty FfprobeData shape on
+// error paths so callers that dereference `data` after a missed `err`
+// check do not crash. A factory (not a shared constant) keeps each
+// failed call's payload isolated — a consumer that mutates the
+// returned object cannot poison subsequent failures.
+const emptyFfprobeData = (): FfprobeData => ({ streams: [], format: {}, chapters: [] });
+
 interface SpawnState {
   stdout: string;
   stderr: string;
@@ -142,7 +161,7 @@ function runFfprobe(
     if (state.exitError) {
       const finalErr = state.exitError;
       if (state.stderr) finalErr.message += `\n${state.stderr}`;
-      handleCallback(finalErr);
+      handleCallback(finalErr, emptyFfprobeData());
       return;
     }
     const data = parseFfprobeOutput(state.stdout);
@@ -158,7 +177,7 @@ function runFfprobe(
   if (input.isStream) {
     child.stdin.on('error', (err: NodeJS.ErrnoException) => {
       if (err.code && stdinIgnorableErrors.has(err.code)) return;
-      handleCallback(err);
+      handleCallback(err, emptyFfprobeData());
     });
     child.stdin.on('close', () => {
       const stream = input.source as Readable;
@@ -168,7 +187,7 @@ function runFfprobe(
     (input.source as Readable).pipe(child.stdin);
   }
 
-  child.on('error', (err) => handleCallback(err));
+  child.on('error', (err) => handleCallback(err, emptyFfprobeData()));
   child.on('exit', (code, signal) => {
     state.processExited = true;
     if (code) tryFinish(new Error(`ffprobe exited with code ${code}`));
@@ -196,16 +215,16 @@ function applyFfprobe(proto: FfmpegCommandPrototype): void {
     const { index, options, callback } = parseFfprobeArgs(args);
     const { input, error } = pickInput(index, this._currentInput, this._inputs);
     if (error || !input) {
-      callback(error!);
+      callback(error!, emptyFfprobeData());
       return;
     }
     this._getFfprobePath((pathErr, probePath) => {
       if (pathErr) {
-        callback(pathErr);
+        callback(pathErr, emptyFfprobeData());
         return;
       }
       if (!probePath) {
-        callback(new Error('Cannot find ffprobe'));
+        callback(new Error('Cannot find ffprobe'), emptyFfprobeData());
         return;
       }
       runFfprobe(probePath, input, options, callback);
