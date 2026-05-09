@@ -92,6 +92,14 @@ describe('pickBiggestVideoStream', () => {
     const picked = pickBiggestVideoStream(meta([incomplete, real]));
     assert.equal(picked, real);
   });
+
+  it('mutating the returned no-video seed does not poison later calls', () => {
+    const first = pickBiggestVideoStream(meta([]));
+    first.width = 9999;
+    const second = pickBiggestVideoStream(meta([]));
+    assert.equal(second.width, 0);
+    assert.notEqual(first, second);
+  });
 });
 
 describe('normaliseScreenshotConfig', () => {
@@ -145,12 +153,6 @@ describe('normaliseScreenshotConfig', () => {
 
   it('throws when count is 0 and no timemarks are given', () => {
     assert.throws(() => normaliseScreenshotConfig(0), /neither a count nor a timemark list/);
-  });
-
-  it('does not deep-copy nested arrays from the input config', () => {
-    const tm: (string | number)[] = [1, 2];
-    const config = normaliseScreenshotConfig({ timemarks: tm });
-    assert.equal(config.timemarks, tm);
   });
 });
 

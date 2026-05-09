@@ -39,9 +39,10 @@ async function fileExists(p: string): Promise<boolean> {
   }
 }
 
-const EMPTY_VIDEO_STREAM: FfprobeStream = { width: 0, height: 0 };
-
 export function pickBiggestVideoStream(meta: FfprobeData): FfprobeStream {
+  // Fresh seed per call: a shared singleton would let a caller poison later
+  // lookups by mutating the returned stream object.
+  const seed: FfprobeStream = { width: 0, height: 0 };
   return meta.streams.reduce<FfprobeStream>((biggest, stream) => {
     if (
       stream.codec_type === 'video' &&
@@ -50,7 +51,7 @@ export function pickBiggestVideoStream(meta: FfprobeData): FfprobeStream {
       return stream;
     }
     return biggest;
-  }, EMPTY_VIDEO_STREAM);
+  }, seed);
 }
 
 function probeFfprobe(self: FfmpegCommandThis): Promise<FfprobeData> {
