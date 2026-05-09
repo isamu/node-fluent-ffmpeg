@@ -107,8 +107,11 @@ function FfmpegCommandImpl(
   if (isOptionsObject(input)) {
     opts = input;
   } else {
+    // Match legacy: unconditional source assignment, including undefined,
+    // so `new FfmpegCommand(undefined, { source: 'foo' })` clears `source`
+    // exactly the way the legacy constructor did.
     opts = options ?? {};
-    if (input !== undefined) opts.source = input as string | Readable;
+    opts.source = input as string | Readable | undefined;
   }
 
   this._inputs = [];
@@ -122,7 +125,9 @@ function FfmpegCommandImpl(
 
   applyDefaults(opts);
   this.options = opts;
-  this.logger = opts.logger ?? NULL_LOGGER;
+  // Legacy used `||`: any falsy logger (false / '' / 0 / null / undefined)
+  // falls back to the no-op logger so internal .debug/.warn calls don't crash.
+  this.logger = opts.logger || NULL_LOGGER;
   return undefined;
 }
 
