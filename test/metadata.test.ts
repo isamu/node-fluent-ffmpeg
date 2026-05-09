@@ -105,7 +105,10 @@ describe('Metadata', () => {
     const data = await new Promise<FfprobeData>((resolve, reject) => {
       new Ffmpeg({ source: testfile }).ffprobe((err: Error | null, d?: FfprobeData) => {
         testhelper.logError(err);
-        if (err || !d) return reject(err ?? new Error('no data'));
+        if (err || !d) {
+          reject(err ?? new Error('no data'));
+          return;
+        }
         resolve(d);
       });
     });
@@ -130,7 +133,10 @@ describe('Metadata', () => {
     const stream = fs.createReadStream(testfile);
     const data = await new Promise<FfprobeData>((resolve, reject) => {
       new Ffmpeg().addInput(stream).ffprobe((err: Error | null, d?: FfprobeData) => {
-        if (err || !d) return reject(err ?? new Error('no data'));
+        if (err || !d) {
+          reject(err ?? new Error('no data'));
+          return;
+        }
         resolve(d);
       });
     });

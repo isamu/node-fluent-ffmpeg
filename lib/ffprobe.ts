@@ -12,6 +12,10 @@ import type {
 const blockEndRegexp = /^\[\/(.+)]$/;
 const sectionStartRegexp = /^\[/;
 const kvRegexp = /^([^=]+)=(.*)$/;
+// Matches bounded ffprobe-emitted numeric strings (e.g. "123" / "123.456");
+// the `(\.…)?` alternation is theoretically unbounded but the input is
+// fixed-length, so the ReDoS warning isn't actionable here.
+// eslint-disable-next-line security/detect-unsafe-regex
 const numericRegexp = /^[0-9]+(\.[0-9]+)?$/;
 const tagPrefixRegexp = /^TAG:/;
 const dispositionPrefixRegexp = /^DISPOSITION:/;

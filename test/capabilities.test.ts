@@ -30,9 +30,7 @@ const ffmpegIt = ffmpegInPath ? it : it.skip;
 const ffprobeIt = ffprobeInPath ? it : it.skip;
 const flvtoolIt = flvtoolInPath ? it : it.skip;
 
-const ALT_FFMPEG_PATH = process.env.ALT_FFMPEG_PATH;
-const ALT_FFPROBE_PATH = process.env.ALT_FFPROBE_PATH;
-const ALT_FLVTOOL_PATH = process.env.ALT_FLVTOOL_PATH;
+const { ALT_FFMPEG_PATH, ALT_FFPROBE_PATH, ALT_FLVTOOL_PATH } = process.env;
 
 const altFfmpegIt = ffmpegInPath && ALT_FFMPEG_PATH ? it : it.skip;
 const altFfprobeIt = ffprobeInPath && ALT_FFPROBE_PATH ? it : it.skip;
