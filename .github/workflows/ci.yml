@@ -68,5 +68,8 @@ jobs:
       - name: Install dependencies
         run: yarn install --frozen-lockfile
 
+      - name: Build (so the dist-entry-point leak regression test can require it)
+        run: yarn build
+
       - name: Test (binary-dependent tests now run instead of skipping)
         run: yarn test
