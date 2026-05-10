@@ -66,7 +66,7 @@ export interface InputState {
 export interface OutputState {
   target?: string | Writable;
   isFile?: boolean;
-  pipeopts?: Record<string, unknown>;
+  pipeopts?: PipeOptions;
   audio: ArgList;
   audioFilters: ArgList;
   video: ArgList;
