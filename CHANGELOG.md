@@ -4,12 +4,16 @@ All notable changes to `@modernized/fluent-ffmpeg` are documented here. Format f
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-05-10
+
 ### Added
 
 - **#53** — New chainable `durationInput(d)` (and its `setInputDuration(d)` alias) that mirrors the existing `seekInput(s)` / `setStartTime(s)` pair — applies `-t <duration>` to the **current input** rather than the global output. Lets consumers express the canonical multi-input pattern `ffmpeg -t N -ss S -i input1 -t N -ss S -i input2 …`. Mirrors upstream [fluent-ffmpeg#1247](https://github.com/fluent-ffmpeg/node-fluent-ffmpeg/issues/1247). The existing output-side `.duration()` is unchanged. (#56)
+- **#54** — New `skipMetadata: true` option on `FfmpegCommand` constructor that suppresses the background ffprobe metadata fetch. For remote URL inputs, this avoids the duplicate HTTP probe that fluent-ffmpeg otherwise issues (one ffprobe + one ffmpeg = two GETs to the same resource); useful for large files, slow networks, or metered bandwidth. `progress.percent` is unavailable when set. Mirrors upstream [fluent-ffmpeg#1191](https://github.com/fluent-ffmpeg/node-fluent-ffmpeg/issues/1191). (#57)
 
 ### Fixed
 
+- **#43** — `resolveBundledPresetsDir()` no longer crashes with `ReferenceError: __dirname is not defined` when a downstream tool (SvelteKit / Vite SSR / esbuild ESM mode) re-emits the compiled CJS as part of an ESM bundle. Falls back to the relative `'presets'` string in that case, so module load succeeds and preset resolution surfaces the existing error path. Mirrors upstream [fluent-ffmpeg#1283](https://github.com/fluent-ffmpeg/node-fluent-ffmpeg/issues/1283). (#48)
 - **#37** — `formatRegexp` now consumes the optional 3rd `[d ]?` flag column emitted by ffmpeg for virtual / device demuxers (`lavfi`, `gdigrab`, `iec61883`, …). `inputFormat('lavfi')` no longer raises *"Input format lavfi is not available"*. Mirrors upstream [fluent-ffmpeg#1282](https://github.com/fluent-ffmpeg/node-fluent-ffmpeg/issues/1282) / [#1262](https://github.com/fluent-ffmpeg/node-fluent-ffmpeg/issues/1262). (#45)
 - **#38** — `inputOptions` (`-headers`, `-rtsp_transport`, `-allowed_extensions`, …) are now forwarded to the ffprobe sidecar via a new `buildFfprobeArgv()` helper, so the duration probe no longer silently 401s on auth-protected URLs / RTSP feeds and `progress.percent` works for those inputs. Mirrors upstream [fluent-ffmpeg#1146](https://github.com/fluent-ffmpeg/node-fluent-ffmpeg/issues/1146). (#45)
 - **#39** — `setFfmpegPath` / `setFfprobePath` now invalidate the cached capability tables (`codecs` / `encoders` / `formats` / `filters`) so a second run after a path swap re-probes the new binary instead of trusting stale data. `setFfmpegPath` additionally clears an auto-derived `ffprobePath` (sibling-of-ffmpeg or `PATH` lookup) while leaving an explicit `setFfprobePath` value intact. Mirrors upstream [fluent-ffmpeg#1285](https://github.com/fluent-ffmpeg/node-fluent-ffmpeg/issues/1285). (#45)
