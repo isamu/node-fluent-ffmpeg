@@ -7,14 +7,14 @@ const Ffmpeg = require('../index.js');
 
 interface MockableFfmpegCommand {
   options: { skipMetadata?: boolean };
-  ffprobe(...args: unknown[]): void;
-  on(event: string, listener: (...args: unknown[]) => unknown): MockableFfmpegCommand;
-  _checkCapabilities(cb: (err?: Error | null) => void): void;
-  _getFfmpegPath(cb: (err: Error | null, p?: string) => void): void;
-  _getFlvtoolPath(cb: (err: Error | null, p?: string) => void): void;
-  _spawnFfmpeg(...args: unknown[]): void;
-  availableEncoders(cb: (err: Error | null, e?: unknown) => void): void;
-  _prepare(cb: (err: Error | null, args?: string[]) => void, readMetadata?: boolean): void;
+  ffprobe: (...args: unknown[]) => void;
+  on: (event: string, listener: (...args: unknown[]) => unknown) => MockableFfmpegCommand;
+  _checkCapabilities: (cb: (err?: Error | null) => void) => void;
+  _getFfmpegPath: (cb: (err: Error | null, p?: string) => void) => void;
+  _getFlvtoolPath: (cb: (err: Error | null, p?: string) => void) => void;
+  _spawnFfmpeg: (...args: unknown[]) => void;
+  availableEncoders: (cb: (err: Error | null, e?: unknown) => void) => void;
+  _prepare: (cb: (err: Error | null, args?: string[]) => void, readMetadata?: boolean) => void;
 }
 
 // --- Feature for issue #54 / upstream #1191 ---------------------------
@@ -38,7 +38,9 @@ function setupCmd(opts: { skipMetadata?: boolean }): {
   cmd._getFfmpegPath = (cb) => cb(null, '/dummy/ffmpeg');
   cmd._getFlvtoolPath = (cb) => cb(null, '/dummy/flvmeta');
   cmd.availableEncoders = (cb) => cb(null, {});
-  cmd._spawnFfmpeg = () => {};
+  cmd._spawnFfmpeg = () => {
+    /* mock: skip real spawn */
+  };
   cmd.ffprobe = (..._args: unknown[]): void => {
     count += 1;
   };
@@ -50,7 +52,9 @@ const SETTLE_MS = 30;
 describe('skipMetadata option (issue #54)', () => {
   it('default behaviour: progress listener triggers the early ffprobe', async () => {
     const { cmd, probeCount } = setupCmd({});
-    cmd.on('progress', () => {});
+    cmd.on('progress', () => {
+      /* listener attached only to trigger the early-ffprobe codepath */
+    });
     await new Promise<void>((resolve) => cmd._prepare(() => resolve()));
     await new Promise<void>((r) => setTimeout(r, SETTLE_MS));
     assert.equal(probeCount(), 1, 'default behaviour must fire the early ffprobe');
@@ -58,7 +62,9 @@ describe('skipMetadata option (issue #54)', () => {
 
   it('skipMetadata=true: the early ffprobe is NOT fired even with a progress listener', async () => {
     const { cmd, probeCount } = setupCmd({ skipMetadata: true });
-    cmd.on('progress', () => {});
+    cmd.on('progress', () => {
+      /* listener attached only to trigger the early-ffprobe codepath */
+    });
     await new Promise<void>((resolve) => cmd._prepare(() => resolve()));
     await new Promise<void>((r) => setTimeout(r, SETTLE_MS));
     assert.equal(probeCount(), 0, 'skipMetadata=true must suppress the early ffprobe entirely');
@@ -66,7 +72,9 @@ describe('skipMetadata option (issue #54)', () => {
 
   it('skipMetadata=false (explicit) keeps the default behaviour', async () => {
     const { cmd, probeCount } = setupCmd({ skipMetadata: false });
-    cmd.on('progress', () => {});
+    cmd.on('progress', () => {
+      /* listener attached only to trigger the early-ffprobe codepath */
+    });
     await new Promise<void>((resolve) => cmd._prepare(() => resolve()));
     await new Promise<void>((r) => setTimeout(r, SETTLE_MS));
     assert.equal(probeCount(), 1);

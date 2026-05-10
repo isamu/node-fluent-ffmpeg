@@ -6,13 +6,13 @@ const require = createRequire(__filename);
 const Ffmpeg = require('../index.js');
 
 interface FfmpegInst {
-  input(p: string): FfmpegInst;
-  seekInput(s: string | number): FfmpegInst;
-  durationInput(d: string | number): FfmpegInst;
-  setInputDuration(d: string | number): FfmpegInst;
-  output(p: string): FfmpegInst;
+  input: (p: string) => FfmpegInst;
+  seekInput: (s: string | number) => FfmpegInst;
+  durationInput: (d: string | number) => FfmpegInst;
+  setInputDuration: (d: string | number) => FfmpegInst;
+  output: (p: string) => FfmpegInst;
   _inputs: { options: { get: () => unknown[] } }[];
-  _getArguments(): unknown[];
+  _getArguments: () => unknown[];
 }
 
 // --- Feature for issue #53 / upstream #1247 -----------------------------

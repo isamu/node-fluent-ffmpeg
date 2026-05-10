@@ -198,7 +198,7 @@ describe('Processor', () => {
         `  .saveToFile('/dev/null');`,
       ].join('\n');
       await new Promise<void>((resolve, reject) => {
-        // eslint-disable-next-line sonarjs/os-command -- intentional: spawns a fresh node to verify no event loop holds keep the process alive
+        // eslint-disable-next-line sonarjs/os-command, security/detect-child-process -- intentional: spawns a fresh node to verify no event loop holds keep the process alive
         exec(
           `node -e "${script.replace(/\n/g, ' ').replace(/"/g, '\\"')}"`,
           { timeout: 1000 },
@@ -937,7 +937,9 @@ describe('Processor', () => {
     // shared sink and asserts the listener count never exceeds 1 of each.
     ffmpegIt('should not leak target close/error listeners across consecutive pipes', async () => {
       const sink = new stream.PassThrough();
-      sink.on('data', () => {});
+      sink.on('data', () => {
+        /* drain the PassThrough so it does not back-pressure */
+      });
       const ENCODE_COUNT = 5;
       const MAX_LISTENERS_PER_EVENT = 1;
 
@@ -1040,7 +1042,9 @@ describe('Processor', () => {
   describe('Remote I/O', () => {
     it.skip('should take input from a RTSP stream', () => {
       // testfilewide is referenced by future RTSP tests; keep the binding live.
-      [testfilewide].forEach(() => {});
+      [testfilewide].forEach(() => {
+        /* placeholder: keep the testfilewide binding live for future RTSP tests */
+      });
     });
   });
 
