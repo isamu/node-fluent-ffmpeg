@@ -67,17 +67,24 @@ describe('processor: ring-buffer null safety in endCB (issue #44)', () => {
     let endEvent = false;
 
     const result = await new Promise<'error' | 'end' | 'timeout'>((resolve) => {
+      // Defensive timeout in case neither event ever fires. Captured so
+      // we can clear it on resolution — without that, every successful
+      // run keeps the event loop alive for the full second and the
+      // suite slow-walks unnecessarily.
+      const timeoutHandle = setTimeout(() => resolve('timeout'), 1000);
+      const finish = (outcome: 'error' | 'end' | 'timeout'): void => {
+        clearTimeout(timeoutHandle);
+        resolve(outcome);
+      };
       cmd.on('error', (err: unknown, stdout: unknown, stderr: unknown) => {
         errorEvent = { err: err as Error, stdout, stderr };
-        resolve('error');
+        finish('error');
       });
       cmd.on('end', () => {
         endEvent = true;
-        resolve('end');
+        finish('end');
       });
       cmd.output('/dev/null').run();
-      // Defensive timeout in case neither event ever fires.
-      setTimeout(() => resolve('timeout'), 1000);
     });
 
     assert.equal(result, 'error', `expected 'error' event, got ${result}`);
