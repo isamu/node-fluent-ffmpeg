@@ -38,10 +38,11 @@ export default [
     rules: {
       // ── TypeScript strictness ──────────────────────────────────
       '@typescript-eslint/no-explicit-any': 'error',
-      // Both lib and test still have legitimate `!` sites (constructor
-      // bootstrap fields in lib, post-`assert.ok` reads in tests). Kept
-      // at `warn` everywhere as a watch-list rather than enforced.
-      '@typescript-eslint/no-non-null-assertion': 'warn',
+      // Off: both lib and test have legitimate `!` sites (constructor-
+      // bootstrap fields in lib, post-`assert.ok` reads in tests).
+      // Mechanical removal would either change runtime error paths or
+      // require type assertions that just trade one cast for another.
+      '@typescript-eslint/no-non-null-assertion': 'off',
       '@typescript-eslint/no-dynamic-delete': 'error',
       '@typescript-eslint/no-import-type-side-effects': 'error',
       '@typescript-eslint/no-useless-empty-export': 'error',
@@ -140,11 +141,10 @@ export default [
       'sonarjs/no-nested-conditional': 'error',
       'sonarjs/no-nested-functions': 'error',
       'sonarjs/concise-regex': 'error',
-      // Both lib and test have one site each that the rule flags as
-      // potentially super-linear. The lib regexes are the legacy ffmpeg
-      // output parsers ported verbatim; the test one is a bounded
-      // `(\d+)x\?` match. Kept at `warn` as a watch-list.
-      'sonarjs/slow-regex': 'warn',
+      // Off: lib regexes are the legacy ffmpeg output parsers ported
+      // verbatim (intentional behaviour-equivalence); the one test site
+      // is a bounded `(\d+)x\?` match that cannot backtrack on real input.
+      'sonarjs/slow-regex': 'off',
       'sonarjs/regex-complexity': 'error',
       'sonarjs/single-char-in-character-classes': 'error',
       'sonarjs/no-os-command-from-path': 'error',
@@ -153,17 +153,20 @@ export default [
       'sonarjs/no-unused-vars': 'error',
 
       // ── Security plugin tuning ────────────────────────────────
-      'security/detect-non-literal-fs-filename': 'warn',
+      // Off: the only remaining lib site is `mkdir(folder)` in
+      // recipes.ts where `folder` is the user-supplied screenshot
+      // output directory — that's the API contract, not a tainted
+      // input. Tests inherit `off` via the test override below.
+      'security/detect-non-literal-fs-filename': 'off',
       'security/detect-object-injection': 'error',
       'security/detect-non-literal-regexp': 'error',
       'security/detect-child-process': 'error',
     },
   },
-  // lib/ has a number of documented-intentional violations on rules that are
-  // `error` by default. Downgrade them to `warn` for lib only — the rules
-  // stay strict for test code (which has no remaining violations on these),
-  // so test regressions fail CI while lib keeps the historical exemptions
-  // visible as a watch-list.
+  // lib/ has documented-intentional violations on rules that are `error`
+  // by default. Disable them for lib only — the rules stay strict for
+  // test code (which has no remaining violations on these), so test
+  // regressions fail CI while lib's historical exemptions stay quiet.
   //
   // Reasons (per rule):
   //   method-signature-style — EventEmitter overload typings in lib/types.ts
@@ -189,28 +192,18 @@ export default [
   {
     files: ['lib/**/*.ts'],
     rules: {
-      '@typescript-eslint/method-signature-style': 'warn',
-      '@typescript-eslint/no-dynamic-delete': 'warn',
-      '@typescript-eslint/no-empty-function': 'warn',
-      '@typescript-eslint/unified-signatures': 'warn',
-      'no-multi-assign': 'warn',
-      'sonarjs/concise-regex': 'warn',
-      'sonarjs/no-nested-conditional': 'warn',
-      'sonarjs/no-nested-functions': 'warn',
-      'sonarjs/no-os-command-from-path': 'warn',
-      'sonarjs/regex-complexity': 'warn',
-      'sonarjs/single-char-in-character-classes': 'warn',
-      'security/detect-object-injection': 'warn',
-    },
-  },
-  // Tests legitimately exercise fs ops on dynamic paths built via
-  // path.join(testdir, ...). The rule cannot tell that from a tainted
-  // input and inline disables would litter the suite, so disable for
-  // tests; lib/ keeps the `warn` watch-list (1 site, in recipes.ts).
-  {
-    files: ['test/**/*.ts'],
-    rules: {
-      'security/detect-non-literal-fs-filename': 'off',
+      '@typescript-eslint/method-signature-style': 'off',
+      '@typescript-eslint/no-dynamic-delete': 'off',
+      '@typescript-eslint/no-empty-function': 'off',
+      '@typescript-eslint/unified-signatures': 'off',
+      'no-multi-assign': 'off',
+      'sonarjs/concise-regex': 'off',
+      'sonarjs/no-nested-conditional': 'off',
+      'sonarjs/no-nested-functions': 'off',
+      'sonarjs/no-os-command-from-path': 'off',
+      'sonarjs/regex-complexity': 'off',
+      'sonarjs/single-char-in-character-classes': 'off',
+      'security/detect-object-injection': 'off',
     },
   },
   prettierConfig,
