@@ -1,6 +1,11 @@
 import type { Writable } from 'node:stream';
 import utils from '../utils.js';
-import type { FfmpegCommandPrototype, FfmpegCommandThis, OutputState } from '../types.js';
+import type {
+  FfmpegCommandPrototype,
+  FfmpegCommandThis,
+  OutputState,
+  PipeOptions,
+} from '../types.js';
 
 function isWritable(value: unknown): value is Writable {
   return typeof value === 'object' && value !== null && 'writable' in value;
@@ -9,7 +14,7 @@ function isWritable(value: unknown): value is Writable {
 function makeOutputState(
   target?: string | Writable,
   isFile = false,
-  pipeopts: Record<string, unknown> = {},
+  pipeopts: PipeOptions = {},
 ): OutputState {
   const state: OutputState = {
     isFile,
@@ -41,7 +46,7 @@ function applyOutputOptions(proto: FfmpegCommandPrototype): void {
   proto.addOutput = proto.output = function (
     this: FfmpegCommandThis,
     target?: string | Writable,
-    pipeopts?: Record<string, unknown>,
+    pipeopts?: PipeOptions,
   ) {
     if (!target && this._currentOutput !== undefined) {
       throw new Error('Invalid output');
