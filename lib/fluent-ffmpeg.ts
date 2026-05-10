@@ -1,6 +1,5 @@
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { Readable } from 'node:stream';
 
 import utils from './utils.js';
@@ -90,27 +89,23 @@ function isOptionsObject(value: unknown): value is FfmpegCommandOptions {
  * a downstream tool re-emits our compiled CJS as part of an ESM bundle
  * and `__dirname` is undefined. See issue #43 / upstream #1283.
  *
- * The CJS branch is taken almost always at runtime; the ESM branch is
- * exercised via an indirect-`eval` feature-detect so the source still
- * compiles cleanly under `module: NodeNext` + CJS output.
+ * The `dirname` parameter exists for testability — production callers
+ * pass the default (current `__dirname` if defined, else undefined).
+ *
+ * In the ESM-bundle branch we return the relative string `'presets'`
+ * rather than trying to recover the absolute path from `import.meta`:
+ * indirect-`eval` of an `import.meta` reference is parsed as Script and
+ * always SyntaxErrors, so any such recovery is dead code in practice.
+ * The relative-path fallback lets module load succeed; preset loading
+ * will surface the existing 'preset … could not be loaded' error
+ * instead of crashing the import with `ReferenceError`.
  */
-export function resolveBundledPresetsDir(): string {
-  if (typeof __dirname !== 'undefined') {
-    return path.join(__dirname, 'presets');
+export function resolveBundledPresetsDir(
+  dirname: string | undefined = typeof __dirname !== 'undefined' ? __dirname : undefined,
+): string {
+  if (dirname) {
+    return path.join(dirname, 'presets');
   }
-  try {
-    // Indirect eval keeps `import.meta` out of the static program text
-    // so the TypeScript compiler does not complain in CJS-target builds.
-    const meta = (0, eval)('typeof import.meta !== "undefined" ? import.meta : null');
-    if (meta && typeof meta.url === 'string') {
-      return fileURLToPath(new URL('./presets/', meta.url));
-    }
-  } catch {
-    // fall through to the relative-path fallback
-  }
-  // Defensive last resort. Real preset resolution will fail later with
-  // the existing "preset … could not be loaded" error, which is more
-  // informative than crashing here.
   return 'presets';
 }
 

@@ -14,15 +14,16 @@ import { resolveBundledPresetsDir } from '../lib/fluent-ffmpeg.js';
 // re-emitted our compiled CJS as part of an ESM bundle (SvelteKit /
 // Vite SSR / esbuild ESM mode).
 //
-// The fix wraps the lookup in `resolveBundledPresetsDir()` which
-// feature-detects `__dirname` first, then falls back to
-// `import.meta.url` via an indirect-`eval` (kept out of the static
-// program text so TS-CJS compile stays clean).
+// The fix wraps the lookup in `resolveBundledPresetsDir(dirname?)`:
+// - If `dirname` is a non-empty string (the production path: the
+//   default arg evaluates `__dirname` if defined), join 'presets'.
+// - Otherwise return the relative string 'presets' so the package
+//   loads in ESM-bundled scenarios; preset resolution will then fail
+//   with the existing 'preset … could not be loaded' error rather
+//   than crashing on import.
 //
-// This test runs in our normal CJS test rig (where `__dirname` is
-// defined), so it exercises the CJS branch. The ESM branch is hard to
-// reach under CJS Node test mode without a re-bundling step; we cover
-// it by inspection only.
+// Both branches are exercised below by passing the parameter directly,
+// since `__dirname` cannot be made undefined under our CJS test rig.
 
 describe('resolveBundledPresetsDir (issue #43 — ESM-safe presets path)', () => {
   it('returns a path that ends in "presets" in the CJS dist context', () => {
@@ -58,5 +59,25 @@ describe('resolveBundledPresetsDir (issue #43 — ESM-safe presets path)', () =>
     const a = resolveBundledPresetsDir();
     const b = resolveBundledPresetsDir();
     assert.equal(a, b);
+  });
+
+  // Branch coverage via parameter injection. Note: passing `undefined`
+  // would re-trigger the default expression (JS default-param
+  // semantics), so we pass an empty string to simulate the ESM-bundle
+  // case where `__dirname` is undefined — both are falsy and hit the
+  // same `if (!dirname)` branch.
+
+  it('joins the supplied dirname with "presets" when given (CJS branch)', () => {
+    const result = resolveBundledPresetsDir('/some/explicit/path/lib');
+    assert.equal(result, path.join('/some/explicit/path/lib', 'presets'));
+  });
+
+  it('returns the relative string "presets" when dirname is falsy (ESM-bundle branch)', () => {
+    // The real production trigger is `__dirname` being undefined when
+    // a downstream tool re-emits our compiled CJS as part of an ESM
+    // bundle. The relative path lets module load succeed; preset
+    // loading then surfaces the existing 'preset … could not be
+    // loaded' error rather than crashing with ReferenceError.
+    assert.equal(resolveBundledPresetsDir(''), 'presets');
   });
 });
