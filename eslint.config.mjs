@@ -38,31 +38,18 @@ export default [
     rules: {
       // ── TypeScript strictness ──────────────────────────────────
       '@typescript-eslint/no-explicit-any': 'error',
-      // Documented '!' on _currentOutput / _currentInput — the FfmpegCommand
-      // constructor guarantees they're set before any option method is
-      // callable, but the type model carries them as optional because of
-      // the constructor bootstrap. Off rather than per-line disables.
+      // Both lib and test still have legitimate `!` sites (constructor
+      // bootstrap fields in lib, post-`assert.ok` reads in tests). Kept
+      // at `warn` everywhere as a watch-list rather than enforced.
       '@typescript-eslint/no-non-null-assertion': 'warn',
-      // Off: ffprobe.ts lifts legacy `TAG:*` / `DISPOSITION:*` keys into
-      // nested `tags` / `disposition` bags, which requires dynamic delete
-      // of arbitrary string keys. The shape comes from external ffprobe
-      // output, not user input.
-      '@typescript-eslint/no-dynamic-delete': 'warn',
+      '@typescript-eslint/no-dynamic-delete': 'error',
       '@typescript-eslint/no-import-type-side-effects': 'error',
       '@typescript-eslint/no-useless-empty-export': 'error',
-      // Off: cosmetic preference between `foo(): bar` and `foo: () => bar`
-      // on interfaces. EventEmitter overload typings rely on the method
-      // form; flipping all interfaces in lib/types.ts would force a wider
-      // rewrite for no behavioural win.
-      '@typescript-eslint/method-signature-style': 'warn',
-      // Off: ffprobe(file, index, cb) and ffprobe(file, options, cb) are
-      // deliberately separate overloads to keep the by-index vs by-options
-      // intent visible at call sites. Combining them as
-      // `(file, indexOrOptions, cb)` would erase that.
-      '@typescript-eslint/unified-signatures': 'warn',
+      '@typescript-eslint/method-signature-style': 'error',
+      '@typescript-eslint/unified-signatures': 'error',
       '@typescript-eslint/consistent-type-assertions': 'error',
       '@typescript-eslint/no-require-imports': 'error',
-      '@typescript-eslint/no-empty-function': 'warn',
+      '@typescript-eslint/no-empty-function': 'error',
       '@typescript-eslint/no-unused-vars': [
         'error',
         {
@@ -97,11 +84,7 @@ export default [
       'prefer-template': 'error',
       'prefer-arrow-callback': 'error',
       'arrow-body-style': ['error', 'as-needed'],
-      // Off: option modules deliberately use chained assignment to wire
-      // multiple aliases to the same implementation (`proto.withFoo =
-      // proto.foo = function() {...}`). Behaviour ported verbatim from
-      // legacy and re-expressed via `Object.assign` would obscure intent.
-      'no-multi-assign': 'warn',
+      'no-multi-assign': 'error',
       'prefer-rest-params': 'error',
       'prefer-spread': 'error',
       'no-self-compare': 'error',
@@ -154,52 +137,80 @@ export default [
       'sonarjs/cognitive-complexity': 'error',
       'sonarjs/no-ignored-exceptions': 'error',
       'sonarjs/no-commented-code': 'error',
-      'sonarjs/no-nested-conditional': 'warn',
-      // The library is callback-heavy by nature (ffmpeg child processes,
-      // event listeners, stream pipelines). Nested callbacks 4–5 deep are
-      // routine; restructuring would obscure the control flow.
-      'sonarjs/no-nested-functions': 'warn',
-      // The legacy regexes (codec parser, time-mark parser, format parser)
-      // were ported verbatim with intentional behaviour-equivalence. Fixing
-      // them risks parser drift; reviewed and accepted as-is.
-      'sonarjs/concise-regex': 'warn',
+      'sonarjs/no-nested-conditional': 'error',
+      'sonarjs/no-nested-functions': 'error',
+      'sonarjs/concise-regex': 'error',
+      // Both lib and test have one site each that the rule flags as
+      // potentially super-linear. The lib regexes are the legacy ffmpeg
+      // output parsers ported verbatim; the test one is a bounded
+      // `(\d+)x\?` match. Kept at `warn` as a watch-list.
       'sonarjs/slow-regex': 'warn',
-      'sonarjs/regex-complexity': 'warn',
-      'sonarjs/single-char-in-character-classes': 'warn',
-      // Library spawns external CLIs (ffmpeg/ffprobe/flvmeta) by name on PATH —
-      // that's the whole point of the package, not a security risk.
-      'sonarjs/no-os-command-from-path': 'warn',
+      'sonarjs/regex-complexity': 'error',
+      'sonarjs/single-char-in-character-classes': 'error',
+      'sonarjs/no-os-command-from-path': 'error',
       // @typescript-eslint/no-unused-vars already covers this with the
       // ^_ ignore pattern; sonarjs version has no options.
       'sonarjs/no-unused-vars': 'error',
 
       // ── Security plugin tuning ────────────────────────────────
-      // Disabled: high false-positive rate against this codebase's patterns
-      // (every fs.access(<computed-path>) gets flagged, every regex built
-      // from configurable args gets flagged, etc.).
       'security/detect-non-literal-fs-filename': 'warn',
-      'security/detect-object-injection': 'warn',
+      'security/detect-object-injection': 'error',
       'security/detect-non-literal-regexp': 'error',
-      'security/detect-child-process': 'error', // spawn(ffmpeg, args) is the library's purpose
+      'security/detect-child-process': 'error',
     },
   },
-  // Test files are clean of these rules today; lock them in as `error` so any
-  // regression in test code fails CI immediately. lib/ keeps `warn` because
-  // the violations there are documented-intentional (EventEmitter overload
-  // method form, ported regexes, deliberate alias chained-assignment, etc.).
+  // lib/ has a number of documented-intentional violations on rules that are
+  // `error` by default. Downgrade them to `warn` for lib only — the rules
+  // stay strict for test code (which has no remaining violations on these),
+  // so test regressions fail CI while lib keeps the historical exemptions
+  // visible as a watch-list.
+  //
+  // Reasons (per rule):
+  //   method-signature-style — EventEmitter overload typings in lib/types.ts
+  //     rely on the method form; flipping to property form would erase
+  //     overload merging.
+  //   no-dynamic-delete — ffprobe.ts lifts legacy TAG:* / DISPOSITION:*
+  //     keys into nested bags from external ffprobe output.
+  //   unified-signatures — ffprobe(file, index, cb) and ffprobe(file,
+  //     options, cb) are deliberately separate overloads.
+  //   no-empty-function — a few harmless empty stubs in lib.
+  //   no-multi-assign — option modules wire `proto.withFoo = proto.foo = ...`
+  //     to keep the alias chain visible at the definition site.
+  //   sonarjs/{concise,regex-complexity,single-char,...} — legacy ffmpeg
+  //     output parsers ported verbatim with intentional behaviour-equivalence.
+  //   sonarjs/no-nested-functions — library is callback-heavy by nature
+  //     (ffmpeg child processes, event listeners, stream pipelines).
+  //   sonarjs/no-nested-conditional — small parser ternaries in option
+  //     modules; flattening reduces readability.
+  //   sonarjs/no-os-command-from-path — spawning ffmpeg/ffprobe/flvmeta by
+  //     name on PATH is the library's purpose, not a security risk.
+  //   security/detect-object-injection — option modules index `proto[name]`
+  //     by alias-table keys, not user input.
+  {
+    files: ['lib/**/*.ts'],
+    rules: {
+      '@typescript-eslint/method-signature-style': 'warn',
+      '@typescript-eslint/no-dynamic-delete': 'warn',
+      '@typescript-eslint/no-empty-function': 'warn',
+      '@typescript-eslint/unified-signatures': 'warn',
+      'no-multi-assign': 'warn',
+      'sonarjs/concise-regex': 'warn',
+      'sonarjs/no-nested-conditional': 'warn',
+      'sonarjs/no-nested-functions': 'warn',
+      'sonarjs/no-os-command-from-path': 'warn',
+      'sonarjs/regex-complexity': 'warn',
+      'sonarjs/single-char-in-character-classes': 'warn',
+      'security/detect-object-injection': 'warn',
+    },
+  },
+  // Tests legitimately exercise fs ops on dynamic paths built via
+  // path.join(testdir, ...). The rule cannot tell that from a tainted
+  // input and inline disables would litter the suite, so disable for
+  // tests; lib/ keeps the `warn` watch-list (1 site, in recipes.ts).
   {
     files: ['test/**/*.ts'],
     rules: {
-      '@typescript-eslint/method-signature-style': 'error',
-      '@typescript-eslint/no-dynamic-delete': 'error',
-      '@typescript-eslint/no-empty-function': 'error',
-      '@typescript-eslint/unified-signatures': 'error',
-      'no-multi-assign': 'error',
-      'sonarjs/concise-regex': 'error',
-      'sonarjs/no-nested-conditional': 'error',
-      'sonarjs/no-os-command-from-path': 'error',
-      'sonarjs/regex-complexity': 'error',
-      'sonarjs/single-char-in-character-classes': 'error',
+      'security/detect-non-literal-fs-filename': 'off',
     },
   },
   prettierConfig,

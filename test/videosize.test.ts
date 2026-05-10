@@ -33,7 +33,7 @@ function options(filter: FilterSpec): Record<string, unknown> {
 
 function stringOption(filter: FilterSpec, key: string): string {
   const opts = options(filter);
-  const value = opts[key];
+  const value = Reflect.get(opts, key);
   assertIsString(value);
   return value;
 }

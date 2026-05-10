@@ -218,20 +218,22 @@ describe('Processor', () => {
       let errorCalled = false;
 
       await new Promise<void>((resolve, reject) => {
+        const verifyErrorThenResolve = (): void => {
+          try {
+            assert.equal(errorCalled, true);
+            resolve();
+          } catch (e) {
+            reject(testhelper.toError(e));
+          }
+        };
+        const onExitSettleAndVerify = (): void => {
+          setTimeout(verifyErrorThenResolve, 1000);
+        };
         ffmpegJob
           .on('start', () => {
             startCalled = true;
             setTimeout(() => ffmpegJob.kill(), 500);
-            ffmpegJob.ffmpegProc.on('exit', () => {
-              setTimeout(() => {
-                try {
-                  assert.equal(errorCalled, true);
-                  resolve();
-                } catch (e) {
-                  reject(testhelper.toError(e));
-                }
-              }, 1000);
-            });
+            ffmpegJob.ffmpegProc.on('exit', onExitSettleAndVerify);
           })
           .on('error', (err: Error) => {
             try {
@@ -500,7 +502,7 @@ describe('Processor', () => {
             filenamesCalled = true;
             try {
               assert.equal(filenames.length, expected.length);
-              filenames.forEach((file, idx) => assert.equal(file, expected[idx]));
+              filenames.forEach((file, idx) => assert.equal(file, expected.at(idx)));
             } catch (e) {
               reject(testhelper.toError(e));
             }

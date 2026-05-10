@@ -1041,7 +1041,7 @@ describe('Command', () => {
       const original = tryGetArgs(command).args!;
       const cloneArgs = tryGetArgs(clone).args!;
       assert.equal(cloneArgs.length, original.length);
-      original.forEach((arg, idx) => assert.equal(cloneArgs[idx], arg));
+      original.forEach((arg, idx) => assert.equal(cloneArgs.at(idx), arg));
     });
 
     it('should have separate argument lists', () => {

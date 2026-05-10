@@ -116,8 +116,10 @@ describe('Method aliases', () => {
           for (const alias of methodAliases) {
             it(`should have a '${alias}' alias`, () => {
               const ff = new Ffmpeg();
-              assert.equal(typeof ff[method], 'function');
-              assert.equal(ff[method], ff[alias]);
+              const target = Reflect.get(ff, method);
+              const aliasFn = Reflect.get(ff, alias);
+              assert.equal(typeof target, 'function');
+              assert.equal(target, aliasFn);
             });
           }
         });
