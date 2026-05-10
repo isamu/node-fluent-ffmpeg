@@ -2,10 +2,10 @@ import { platform } from 'node:os';
 import { execSync } from 'node:child_process';
 
 interface Logger {
-  debug(arg: string): void;
-  info(arg: string): void;
-  warn(arg: string): void;
-  error(arg: string): void;
+  debug: (arg: string) => void;
+  info: (arg: string) => void;
+  warn: (arg: string) => void;
+  error: (arg: string) => void;
 }
 
 function getFfmpegCheck(): string {

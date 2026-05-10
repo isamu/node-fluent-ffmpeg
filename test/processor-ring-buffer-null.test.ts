@@ -6,14 +6,14 @@ const require = createRequire(__filename);
 const Ffmpeg = require('../index.js');
 
 interface MockableFfmpegCommand {
-  _checkCapabilities(cb: (err?: Error | null) => void): void;
-  _getFfmpegPath(cb: (err: Error | null, p?: string) => void): void;
-  _getFlvtoolPath(cb: (err: Error | null, p?: string) => void): void;
-  _spawnFfmpeg(...args: unknown[]): void;
-  output(target: string): MockableFfmpegCommand;
-  on(event: string, listener: (...args: unknown[]) => void): MockableFfmpegCommand;
-  run(): void;
-  ffprobe(callback: (err: Error | null, data?: unknown) => void): void;
+  _checkCapabilities: (cb: (err?: Error | null) => void) => void;
+  _getFfmpegPath: (cb: (err: Error | null, p?: string) => void) => void;
+  _getFlvtoolPath: (cb: (err: Error | null, p?: string) => void) => void;
+  _spawnFfmpeg: (...args: unknown[]) => void;
+  output: (target: string) => MockableFfmpegCommand;
+  on: (event: string, listener: (...args: unknown[]) => void) => MockableFfmpegCommand;
+  run: () => void;
+  ffprobe: (callback: (err: Error | null, data?: unknown) => void) => void;
 }
 
 // --- Regression for issue #44 / upstream #861 / #1316 ----------------
