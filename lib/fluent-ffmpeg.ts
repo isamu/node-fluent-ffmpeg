@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { Readable } from 'node:stream';
 
 import utils from './utils.js';
@@ -82,11 +83,42 @@ function isOptionsObject(value: unknown): value is FfmpegCommandOptions {
   return typeof value === 'object' && value !== null && !('readable' in value);
 }
 
+/**
+ * Resolve the bundled `presets/` directory path in a way that survives
+ * both the regular CJS dist (where `__dirname` is defined) and the
+ * ESM-bundler scenario (SvelteKit / Vite SSR / esbuild ESM mode) where
+ * a downstream tool re-emits our compiled CJS as part of an ESM bundle
+ * and `__dirname` is undefined. See issue #43 / upstream #1283.
+ *
+ * The CJS branch is taken almost always at runtime; the ESM branch is
+ * exercised via an indirect-`eval` feature-detect so the source still
+ * compiles cleanly under `module: NodeNext` + CJS output.
+ */
+export function resolveBundledPresetsDir(): string {
+  if (typeof __dirname !== 'undefined') {
+    return path.join(__dirname, 'presets');
+  }
+  try {
+    // Indirect eval keeps `import.meta` out of the static program text
+    // so the TypeScript compiler does not complain in CJS-target builds.
+    const meta = (0, eval)('typeof import.meta !== "undefined" ? import.meta : null');
+    if (meta && typeof meta.url === 'string') {
+      return fileURLToPath(new URL('./presets/', meta.url));
+    }
+  } catch {
+    // fall through to the relative-path fallback
+  }
+  // Defensive last resort. Real preset resolution will fail later with
+  // the existing "preset … could not be loaded" error, which is more
+  // informative than crashing here.
+  return 'presets';
+}
+
 function applyDefaults(options: FfmpegCommandOptions): void {
   options.stdoutLines = 'stdoutLines' in options ? options.stdoutLines : DEFAULT_STDOUT_LINES;
   // Legacy used `||` (falsy fallback). Keep that exactly so '' presets and
   // niceness:0 with a priority set still inherit the right value.
-  options.presets = options.presets || options.preset || path.join(__dirname, 'presets');
+  options.presets = options.presets || options.preset || resolveBundledPresetsDir();
   options.niceness = options.niceness || options.priority || 0;
 }
 
@@ -223,4 +255,4 @@ FfmpegCommand.ffprobe = function (file: string, ...args: unknown[]): void {
   (inst.ffprobe as (...a: unknown[]) => void)(...args);
 };
 
-export = FfmpegCommand;
+export default FfmpegCommand;
